@@ -1,0 +1,21 @@
+# binary
+git-repos
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# macOS
+.DS_Store
+
+# editor
+.idea/
+.vscode/
+*.swp
+*.swo
