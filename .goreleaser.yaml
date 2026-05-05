@@ -1,0 +1,44 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/samsar/git-repos/cmd.Version={{.Version}}
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+brews:
+  - name: git-repos
+    repository:
+      owner: samsar
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/samsar/git-repos"
+    description: "Scan a directory of git repos and show status at a glance"
+    license: "Apache-2.0"
+    install: |
+      bin.install "git-repos"
+    test: |
+      system "#{bin}/git-repos", "version"
+
+release:
+  github:
+    owner: samsar
+    name: git-repos
