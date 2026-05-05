@@ -28,6 +28,16 @@ Status icons:
 
 ![git-repos screenshot](docs/screenshot.png)
 
+## Releasing
+
+1. Ensure all changes are merged to `main`.
+2. Tag and push:
+   ```bash
+   git tag v<x.y.z>
+   git push origin main --tags
+   ```
+3. The [release workflow](.github/workflows/release.yml) fires automatically, builds binaries for all platforms, publishes a GitHub Release, and updates the Homebrew formula in `samsar/homebrew-tap`.
+
 ### Acknowledgements
 
 The TUI aesthetic was shamelessly inspired by [k9s](https://k9scli.io/), the wonderful Kubernetes terminal UI. If you haven't used it, you're missing out.
