@@ -26,6 +26,7 @@ checksum:
 
 brews:
   - name: git-repos
+    directory: Formula
     repository:
       owner: samsar
       name: homebrew-tap
