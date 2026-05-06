@@ -108,8 +108,13 @@ func (m model) viewScanning() string {
 	b.WriteString(m.renderHeader3Zone(m.listHeaderLines()))
 	b.WriteString(m.sep())
 
-	pad := (m.height - 8) / 2
-	for i := 0; i < pad; i++ {
+	// Fill blank lines so the status bar lands at the bottom.
+	// overhead: headerHeight + 1 sep + 1 status bar = headerHeight + 2
+	blankLines := m.height - m.headerHeight() - 2
+	if blankLines < 0 {
+		blankLines = 0
+	}
+	for i := 0; i < blankLines; i++ {
 		b.WriteString(fillBg("", m.width) + "\n")
 	}
 
@@ -119,7 +124,11 @@ func (m model) viewScanning() string {
 	} else {
 		msg = fmt.Sprintf("  %s  Scanning repos…", m.spinner.View())
 	}
-	b.WriteString(fillBg(msg, m.width) + "\n")
+
+	style := lipgloss.NewStyle().
+		Background(colorStatusBarBg).
+		Foreground(staleFg)
+	b.WriteString(style.Width(m.width).Render(msg) + "\n")
 	return b.String()
 }
 
