@@ -11,7 +11,7 @@ Interactive TUI by default, plain text or JSON when you need to pipe it.
 ```text
 ST  REPO              BRANCH            SYNC    CHANGES       LAST CHANGED  PR   LAST COMMIT
 ─────────────────────────────────────────────────────────────────────────────────────────────
-!!  my-api            feature/auth      ↑2↓1    S:1 M:3       2h ago        #42  fix token refresh
+ !  my-api            feature/auth      ↑2↓1    S:1 M:3       2h ago        #42  fix token refresh
  ↑  frontend          feature/dash      ↑3      ?:2           yesterday     #38  add skeleton
  ✓  infra             main              ✓       clean         3d ago        -    bump terraform
  ·  old-service       main              ✓       clean         8mo ago       -    initial commit
@@ -19,7 +19,7 @@ ST  REPO              BRANCH            SYNC    CHANGES       LAST CHANGED  PR  
 
 Status icons:
 
-- `!!` — needs attention: dirty working tree or behind upstream
+- `!` — needs attention: dirty working tree or behind upstream
 - `↑` — needs a push, or you're on a non-main branch
 - `✓` — clean and in sync on main/master
 - `·` — stale, no commits in 6+ months
@@ -27,16 +27,6 @@ Status icons:
 ## Screenshot of TUI Mode
 
 ![git-repos screenshot](docs/screenshot.png)
-
-## Releasing
-
-1. Ensure all changes are merged to `main`.
-2. Tag and push:
-   ```bash
-   git tag v<x.y.z>
-   git push origin main --tags
-   ```
-3. The [release workflow](.github/workflows/release.yml) fires automatically, builds binaries for all platforms, publishes a GitHub Release, and updates the Homebrew formula in `samsar/homebrew-tap`.
 
 ### Acknowledgements
 
@@ -136,3 +126,15 @@ git repos config reset
 | `--no-color` | Disable color output                                                       |
 | `--plain`    | Plain text instead of TUI                                                  |
 | `--json`     | JSON output                                                                |
+
+## Releasing
+
+1. Ensure all changes are merged to `main`.
+2. Tag and push:
+
+   ```bash
+   git tag v<x.y.z>
+   git push origin main --tags
+   ```
+
+3. The [release workflow](.github/workflows/release.yml) fires automatically, builds binaries for all platforms, publishes a GitHub Release, and updates the Homebrew formula in `samsar/homebrew-tap`.
