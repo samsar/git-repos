@@ -11,8 +11,9 @@ import (
 )
 
 type Config struct {
-	Dirs   []string `json:"dirs"`
-	Hidden []string `json:"hidden,omitempty"`
+	Dirs            []string `json:"dirs"`
+	Hidden          []string `json:"hidden,omitempty"`
+	AutoRefreshMins int      `json:"auto_refresh_mins,omitempty"` // 0 = disabled
 }
 
 func Path() string {

@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -33,7 +35,11 @@ type repoScannedMsg git.ScanResult
 type scanDoneMsg struct{}
 type prsLoadedMsg []git.RepoInfo
 type commitsLoadedMsg []string
+type behindCommitsLoadedMsg []string
 type fetchDoneMsg git.RepoInfo
+type pullAllDoneMsg []git.RepoInfo
+type autoRefreshMsg struct{}
+type shellReturnMsg struct{}
 type errMsg struct{ err error }
 type ghCheckMsg struct{ unavailable bool }
 
@@ -126,16 +132,16 @@ const (
 	wStash = git.ColWidthStash
 	wWhen  = git.ColWidthWhen
 	wPR    = git.ColWidthPR
-
 )
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 type model struct {
 	// config
-	scanDirs []string
-	doFetch  bool
-	noPRs    bool
+	scanDirs        []string
+	doFetch         bool
+	noPRs           bool
+	autoRefreshMins int
 
 	// state
 	state     viewState
@@ -157,11 +163,16 @@ type model struct {
 	detailVP      viewport.Model
 	detailCommits []string
 	commitsLoaded bool
+	behindCommits []string
+	behindLoaded  bool
 
 	// async
-	resultCh   <-chan git.ScanResult
-	prsLoading bool
-	fetchingPR bool
+	resultCh      <-chan git.ScanResult
+	prsLoading    bool
+	prsEverLoaded bool
+	fetchingPR    bool
+	refreshing    bool
+	refreshRepos  []git.RepoInfo
 
 	// ui
 	spinner  spinner.Model
@@ -173,18 +184,19 @@ type model struct {
 	ghUnavailable bool
 }
 
-func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool) model {
+func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(colorCyan)
 	return model{
-		scanDirs: dirs,
-		doFetch:  doFetch,
-		noPRs:    noPRs,
-		state:    stateScanning,
-		spinner:  s,
-		sortCol:  git.SortStatus,
-		hidden:   hidden,
+		scanDirs:        dirs,
+		doFetch:         doFetch,
+		noPRs:           noPRs,
+		state:           stateScanning,
+		spinner:         s,
+		sortCol:         git.SortStatus,
+		hidden:          hidden,
+		autoRefreshMins: autoRefreshMins,
 	}
 }
 
@@ -193,8 +205,9 @@ func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool) model {
 // (down to their minimums); LAST MSG shrinks first and grows last.
 //
 // baseFixed accounts for every non-resizable byte in a rendered row:
-//   prefix(5) + REPO+sp(26) + CHG+sp(15) + STASH+sp(6) + WHEN+sp(13)
-//   + PR+sp(7) + branch-trailing-sp(1) + sync-trailing-sp(1) = 74
+//
+//	prefix(5) + REPO+sp(26) + CHG+sp(15) + STASH+sp(6) + WHEN+sp(13)
+//	+ PR+sp(7) + branch-trailing-sp(1) + sync-trailing-sp(1) = 74
 func (m model) colWidths() (branch, sync, msg int) {
 	const (
 		baseFixed  = 74
@@ -235,6 +248,9 @@ func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, startScanCmd(m.scanDirs, m.doFetch)}
 	if !m.noPRs {
 		cmds = append(cmds, checkGHCmd)
+	}
+	if m.autoRefreshMins > 0 {
+		cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
 	}
 	return tea.Batch(cmds...)
 }
@@ -289,11 +305,65 @@ func loadCommitsCmd(path string) tea.Cmd {
 	}
 }
 
+func loadBehindCommitsCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		return behindCommitsLoadedMsg(git.CommitsBehind(path, 15))
+	}
+}
+
 func fetchRepoCmd(path string) tea.Cmd {
 	return func() tea.Msg {
-		git.RunCmd([]string{"git", "pull", "--ff-only", "--quiet"}, path, 60*time.Second)
+		git.RunCmd([]string{"git", "pull", "--ff-only", "--quiet", "--recurse-submodules"}, path, 60*time.Second)
 		return fetchDoneMsg(git.CollectRepo(path, false))
 	}
+}
+
+func refreshSingleRepoCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		return fetchDoneMsg(git.CollectRepo(path, true))
+	}
+}
+
+func pullAllCmd(repos []git.RepoInfo) tea.Cmd {
+	return func() tea.Msg {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 8)
+		updated := make([]git.RepoInfo, len(repos))
+		for i, r := range repos {
+			updated[i] = r // keep as-is unless we pull
+			if r.Behind == 0 {
+				continue
+			}
+			wg.Add(1)
+			go func(i int, r git.RepoInfo) {
+				defer wg.Done()
+				sem <- struct{}{}
+				git.RunCmd([]string{"git", "pull", "--ff-only", "--quiet", "--recurse-submodules"}, r.Path, 60*time.Second)
+				updated[i] = git.CollectRepo(r.Path, false)
+				<-sem
+			}(i, r)
+		}
+		wg.Wait()
+		return pullAllDoneMsg(updated)
+	}
+}
+
+func autoRefreshTickCmd(mins int) tea.Cmd {
+	return tea.Tick(time.Duration(mins)*time.Minute, func(t time.Time) tea.Msg {
+		return autoRefreshMsg{}
+	})
+}
+
+func openShellCmd(path string) tea.Cmd {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	c := exec.Command(shell)
+	c.Dir = path
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return shellReturnMsg{}
+	})
 }
 
 func openURLCmd(url string) tea.Cmd {
@@ -315,8 +385,8 @@ func openBrowser(url string) {
 }
 
 // Run starts the full-screen TUI program.
-func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool) error {
-	m := New(dirs, doFetch, !fetchPRs, hidden)
+func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int) error {
+	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
