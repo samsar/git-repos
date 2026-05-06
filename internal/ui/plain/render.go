@@ -23,8 +23,14 @@ var (
 )
 
 func disableColor() {
-	cReset = ""; cBold = ""; cDim = ""; cRed = ""
-	cYellow = ""; cGreen = ""; cCyan = ""; cMagenta = ""
+	cReset = ""
+	cBold = ""
+	cDim = ""
+	cRed = ""
+	cYellow = ""
+	cGreen = ""
+	cCyan = ""
+	cMagenta = ""
 }
 
 // Widths shared with the TUI come from the git package.
@@ -216,7 +222,7 @@ func printSummary(repos []git.RepoInfo) {
 }
 
 func printLegend() {
-	fmt.Printf("  %s!!%s  needs attention (dirty working tree or behind upstream)\n", cRed, cReset)
+	fmt.Printf("  %s !%s  needs attention (dirty working tree or behind upstream)\n", cRed, cReset)
 	fmt.Printf("  %s ↑%s  needs push / feature branch\n", cYellow, cReset)
 	fmt.Printf("  %s ✓%s  clean and in sync\n", cGreen, cReset)
 	fmt.Printf("  %s ·%s  stale (>6 months)\n", cDim, cReset)
@@ -229,7 +235,7 @@ func printLegend() {
 func rowColor(info git.RepoInfo, now int64) (color, icon string) {
 	switch git.StatusGroup(info, now) {
 	case git.GroupAttention:
-		return cRed, "!!"
+		return cRed, " !"
 	case git.GroupPush:
 		return cYellow, " ↑"
 	case git.GroupStale:
