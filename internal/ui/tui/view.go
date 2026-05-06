@@ -813,7 +813,7 @@ func fillBg(s string, width int) string {
 func groupIconStyle(group git.Group) (icon string, style lipgloss.Style) {
 	switch group {
 	case git.GroupAttention:
-		return "!", attentionStyle
+		return " !", attentionStyle
 	case git.GroupPush:
 		return " ↑", pushStyle
 	case git.GroupStale:
