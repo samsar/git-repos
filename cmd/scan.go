@@ -83,7 +83,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// TUI mode
-	return tui.Run(scanDirs, flagFetch, !flagNoPRs, hidden)
+	autoRefreshMins := 0
+	if cfg != nil {
+		autoRefreshMins = cfg.AutoRefreshMins
+	}
+	return tui.Run(scanDirs, flagFetch, !flagNoPRs, hidden, autoRefreshMins)
 }
 
 func buildHiddenSet(cfg *config.Config) map[string]bool {

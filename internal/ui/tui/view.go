@@ -41,6 +41,8 @@ var helpNav = []helpEntry{
 var helpActions = []helpEntry{
 	{"o", "Open PR in browser"},
 	{"p", "Pull repo"},
+	{"ctrl-p", "Pull all repos"},
+	{"s", "Open shell in repo"},
 	{"r", "Refresh all"},
 	{"q", "Quit"},
 	{"?", "Help"},
@@ -60,10 +62,10 @@ var helpSorts = []helpEntry{
 type iconDesc struct{ icon, meaning string }
 
 var helpIcons = []iconDesc{
-	{"!!", "staged changes, modified files, or behind upstream — act on this now"},
-	{" ↑", "commits to push, untracked files, or on a feature branch"},
-	{" ✓", "clean, in sync, on main / master / develop"},
-	{" ·", "no activity in 6+ months"},
+	{"!", "staged changes, modified files, or behind upstream — act on this now"},
+	{"↑", "commits to push, untracked files, or on a feature branch"},
+	{"✓", "clean, in sync, on main / master / develop"},
+	{"·", "no activity in 6+ months"},
 }
 
 type colDesc struct{ name, vals string }
@@ -236,49 +238,34 @@ func (m model) viewHelp() string {
 			sepStyle.Render(strings.Repeat("─", m.width-sideW-len(label))) + "\n")
 	}
 
-	// ── Status icons section ──────────────────────────────────────────────────
+	// ── Status icons section — single column ──────────────────────────────────
 	iconFgs := []lipgloss.Color{attentionFg, pushFg, okFg, staleFg}
-	renderIconEntry := func(idx int, w int) string {
+	renderIconEntry := func(idx int) string {
 		ic := helpIcons[idx]
 		styled := lipgloss.NewStyle().Background(bg).Foreground(iconFgs[idx]).Bold(true).Render(ic.icon)
-		return fill.Width(w).Render("  " + styled + "  " + descStyle.Render(ic.meaning))
+		return fill.Width(m.width).Render("  " + styled + "  " + descStyle.Render(ic.meaning))
 	}
 
 	renderSection(" Status icons ")
-	halfW := m.width / 2
-	for i := 0; i < len(helpIcons); i += 2 {
-		left := renderIconEntry(i, halfW)
-		right := ""
-		if i+1 < len(helpIcons) {
-			right = renderIconEntry(i+1, m.width-halfW)
-		} else {
-			right = fill.Width(m.width - halfW).Render("")
-		}
-		b.WriteString(left + right + "\n")
+	for i := 0; i < len(helpIcons); i++ {
+		b.WriteString(renderIconEntry(i) + "\n")
 	}
 
-	// ── Columns section ───────────────────────────────────────────────────────
+	// ── Columns section — single column ───────────────────────────────────────
 	const nameW = 14 // wide enough for "LAST CHANGED"
-	renderColEntry := func(c colDesc, w int) string {
+	renderColEntry := func(c colDesc) string {
 		name := nameStyle.Render(fmt.Sprintf("%-*s", nameW, c.name))
-		return fill.Width(w).Render("  " + name + "  " + descStyle.Render(c.vals))
+		return fill.Width(m.width).Render("  " + name + "  " + descStyle.Render(c.vals))
 	}
 
 	renderSection(" Columns ")
-	for i := 0; i < len(helpCols); i += 2 {
-		left := renderColEntry(helpCols[i], halfW)
-		right := ""
-		if i+1 < len(helpCols) {
-			right = renderColEntry(helpCols[i+1], m.width-halfW)
-		} else {
-			right = fill.Width(m.width - halfW).Render("")
-		}
-		b.WriteString(left + right + "\n")
+	for _, c := range helpCols {
+		b.WriteString(renderColEntry(c) + "\n")
 	}
 
 	// Fill remaining lines
-	iconsRows := 1 + 1 + len(helpIcons)/2   // blank + sep + content
-	colsRows := 1 + 1 + len(helpCols)/2      // blank + sep + content
+	iconsRows := 1 + 1 + len(helpIcons)   // blank + sep + content
+	colsRows := 1 + 1 + len(helpCols)     // blank + sep + content
 	written := 4 + maxRows + iconsRows + colsRows
 	for i := written; i < m.height; i++ {
 		b.WriteString(fill.Width(m.width).Render("") + "\n")
@@ -335,7 +322,8 @@ func (m model) nonMainSummary() string {
 	return hdrPurpleStyle.Render("  Feature Branches: ") + hdrInfoStyle.Render(fmt.Sprintf("%d", count))
 }
 
-// openPRSummary returns "  PRs: N" or "" if none. Shows a spinner while loading.
+// openPRSummary always renders the "PRs:" label when PRs are enabled so it
+// stays visible during bootup and refresh.
 func (m model) openPRSummary() string {
 	if m.noPRs {
 		return ""
@@ -346,6 +334,9 @@ func (m model) openPRSummary() string {
 	if m.prsLoading {
 		return hdrPurpleStyle.Render("  PRs: ") + hdrDimStyle.Render(m.spinner.View()+" loading…")
 	}
+	if !m.prsEverLoaded {
+		return hdrPurpleStyle.Render("  PRs: ") + hdrDimStyle.Render("…")
+	}
 	count := 0
 	for _, r := range m.repos {
 		if r.PRNumber > 0 {
@@ -353,7 +344,7 @@ func (m model) openPRSummary() string {
 		}
 	}
 	if count == 0 {
-		return ""
+		return hdrPurpleStyle.Render("  PRs: ") + hdrDimStyle.Render("—")
 	}
 	return hdrPurpleStyle.Render("  PRs: ") + hdrInfoStyle.Render(fmt.Sprintf("%d", count))
 }
@@ -405,16 +396,20 @@ func (m model) detailInfoLines() []string {
 	}
 	lastLine += hdrPurpleStyle.Render("  Last: ") + hdrInfoStyle.Render(r.LastRel)
 
+	leftW := m.width / 3
+	branchLabel := hdrPurpleStyle.Render("  Branch: ")
+	branchMax := max(0, leftW-lipgloss.Width(branchLabel))
+
 	return []string{
 		"",
 		hdrPurpleStyle.Render("  Root: ") + boldStyle.Background(headerBg).Render(r.Name),
-		hdrPurpleStyle.Render("  Branch: ") + hdrInfoStyle.Render(r.Branch),
+		branchLabel + hdrInfoStyle.Render(trunc(r.Branch, branchMax)),
 		hdrPurpleStyle.Render("  Upstream: ") + syncStr + hdrDimStyle.Render("   Changes: ") + changesStr,
 		lastLine,
 	}
 }
 
-// repoCountLine builds the stats line: "29 repos  !! 2  ↑ 4  ✓ 23".
+// repoCountLine builds the stats line: "29 repos  ! 2  ↑ 4  ✓ 23".
 func (m model) repoCountLine() string {
 	now := time.Now().Unix()
 	total := len(m.repos)
@@ -434,7 +429,7 @@ func (m model) repoCountLine() string {
 
 	s := hdrInfoStyle.Render(fmt.Sprintf("%d repos", total))
 	if att > 0 {
-		s += attentionStyle.Background(headerBg).Render(fmt.Sprintf("  !! %d", att))
+		s += attentionStyle.Background(headerBg).Render(fmt.Sprintf("  ! %d", att))
 	}
 	if push > 0 {
 		s += pushStyle.Background(headerBg).Render(fmt.Sprintf("  ↑ %d", push))
@@ -448,19 +443,37 @@ func (m model) repoCountLine() string {
 	return s
 }
 
-// actionLines returns one line per action for the middle header zone.
+// actionLines returns one line per action for the middle header zone,
+// adjusted to show only the actions available in the current view.
 func (m model) actionLines() []string {
 	type act struct{ key, desc string }
-	col1 := []act{
-		{"enter", "Detail view"},
-		{"esc", "Back"},
-		{"o", "Open PR"},
-		{"p", "Pull repo"},
-	}
-	col2 := []act{
-		{"r", "Refresh"},
-		{"q", "Quit"},
-		{"?", "Help"},
+
+	var col1, col2 []act
+	if m.state == stateDetail {
+		col1 = []act{
+			{"esc", "Back to list"},
+			{"o", "Open PR"},
+			{"p", "Pull repo"},
+		}
+		col2 = []act{
+			{"s", "Open shell"},
+			{"r", "Refresh"},
+			{"q", "Quit"},
+			{"?", "Help"},
+		}
+	} else {
+		col1 = []act{
+			{"enter", "Detail view"},
+			{"o", "Open PR"},
+			{"p", "Pull repo"},
+			{"ctrl+p", "Pull all"},
+		}
+		col2 = []act{
+			{"s", "Open shell"},
+			{"r", "Refresh"},
+			{"q", "Quit"},
+			{"?", "Help"},
+		}
 	}
 
 	maxKeyWFor := func(acts []act) int {
@@ -575,6 +588,12 @@ func (m model) renderStatusBar() string {
 
 	var content string
 	switch {
+	case m.refreshing:
+		if m.scanTotal > 0 {
+			content = fmt.Sprintf("  %s  Refreshing… (%d / %d)", m.spinner.View(), m.scanDone, m.scanTotal)
+		} else {
+			content = fmt.Sprintf("  %s  Refreshing…", m.spinner.View())
+		}
 	case m.fetchingPR:
 		content = fmt.Sprintf("  %s  %s", m.spinner.View(), m.statusMsg)
 	case m.statusMsg != "":
@@ -590,7 +609,7 @@ func (m model) legendContent() string {
 		return "  " + st.Background(headerBg).Render(icon) +
 			hdrLegendTextStyle.Render(" "+desc)
 	}
-	return entry("!!", "needs attention", attentionStyle) +
+	return entry("!", "needs attention", attentionStyle) +
 		entry("  ↑", "push / branch", pushStyle) +
 		entry("  ✓", "clean", okStyle) +
 		entry("  ·", "stale (6mo+)", staleStyle)
@@ -746,6 +765,22 @@ func (m model) renderDetailContent() string {
 		b.WriteString(field("", lipgloss.NewStyle().Foreground(lipgloss.Color("248")).Render(r.PRUrl)))
 	}
 
+	// ── Commits behind ────────────────────────────────────────────────────────
+	if r.Behind > 0 {
+		b.WriteString("\n")
+		b.WriteString(boldStyle.Render("  Commits behind") + "\n")
+		b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
+		if !m.behindLoaded {
+			b.WriteString("  " + m.spinner.View() + "  loading…\n")
+		} else if len(m.behindCommits) == 0 {
+			b.WriteString(dimStyle.Render("  (none)") + "\n")
+		} else {
+			for _, c := range m.behindCommits {
+				b.WriteString(attentionStyle.Render("  "+c) + "\n")
+			}
+		}
+	}
+
 	b.WriteString("\n")
 	b.WriteString(boldStyle.Render("  Recent commits") + "\n")
 	b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
@@ -778,7 +813,7 @@ func fillBg(s string, width int) string {
 func groupIconStyle(group git.Group) (icon string, style lipgloss.Style) {
 	switch group {
 	case git.GroupAttention:
-		return "!!", attentionStyle
+		return "!", attentionStyle
 	case git.GroupPush:
 		return " ↑", pushStyle
 	case git.GroupStale:

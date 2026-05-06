@@ -31,21 +31,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resultCh = msg.ch
 		m.scanTotal = msg.total
 		if msg.total == 0 {
-			m.state = stateList
+			if m.refreshing {
+				m.repos = nil
+				m.refreshRepos = nil
+				m.refreshing = false
+			} else {
+				m.state = stateList
+			}
 			m.statusMsg = "no repos found"
 			return m, nil
 		}
 		return m, waitForScanCmd(m.resultCh)
 
 	case repoScannedMsg:
-		if !m.hidden[msg.Repo.Name] {
-			m.repos = append(m.repos, msg.Repo)
+		if m.refreshing {
+			if !m.hidden[msg.Repo.Name] {
+				m.refreshRepos = append(m.refreshRepos, msg.Repo)
+			}
+		} else {
+			if !m.hidden[msg.Repo.Name] {
+				m.repos = append(m.repos, msg.Repo)
+			}
 		}
 		m.scanDone = msg.Done
 		m.scanTotal = msg.Total
 		return m, waitForScanCmd(m.resultCh)
 
 	case scanDoneMsg:
+		if m.refreshing {
+			m.repos = m.refreshRepos
+			m.refreshRepos = nil
+			m.refreshing = false
+			m.statusMsg = ""
+			git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
+			m.cursor = min(m.cursor, max(0, len(m.repos)-1))
+			if m.state == stateDetail {
+				m.detailVP.SetContent(m.renderDetailContent())
+			}
+			if !m.noPRs {
+				m.prsLoading = true
+				return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+			}
+			return m, nil
+		}
 		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
 		m.state = stateList
 		if !m.noPRs {
@@ -57,13 +85,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prsLoadedMsg:
 		m.repos = []git.RepoInfo(msg)
 		m.prsLoading = false
-		// re-apply sort after PR data is added
+		m.prsEverLoaded = true
 		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
+		if m.state == stateDetail {
+			m.detailVP.SetContent(m.renderDetailContent())
+		}
 		return m, nil
 
 	case commitsLoadedMsg:
 		m.detailCommits = []string(msg)
 		m.commitsLoaded = true
+		if m.state == stateDetail {
+			m.detailVP.SetContent(m.renderDetailContent())
+		}
+		return m, nil
+
+	case behindCommitsLoadedMsg:
+		m.behindCommits = []string(msg)
+		m.behindLoaded = true
 		if m.state == stateDetail {
 			m.detailVP.SetContent(m.renderDetailContent())
 		}
@@ -80,9 +119,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fetchingPR = false
 		m.statusMsg = "pulled " + updated.Name
 		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
-		if m.cursor >= len(m.repos) {
-			m.cursor = len(m.repos) - 1
+		m.cursor = min(m.cursor, max(0, len(m.repos)-1))
+		if m.state == stateDetail {
+			// Reload behind commits — upstream may have changed after a fetch/pull.
+			m.behindLoaded = false
+			m.behindCommits = nil
+			m.detailVP.SetContent(m.renderDetailContent())
+			if updated.Behind > 0 {
+				return m, loadBehindCommitsCmd(updated.Path)
+			}
+			m.behindLoaded = true
+			m.detailVP.SetContent(m.renderDetailContent())
 		}
+		return m, nil
+
+	case pullAllDoneMsg:
+		m.repos = []git.RepoInfo(msg)
+		m.fetchingPR = false
+		m.statusMsg = "pulled all repos"
+		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
+		m.cursor = min(m.cursor, max(0, len(m.repos)-1))
+		if !m.noPRs {
+			m.prsLoading = true
+			return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+		}
+		return m, nil
+
+	case autoRefreshMsg:
+		if m.autoRefreshMins > 0 {
+			if m.state == stateList && !m.refreshing && !m.fetchingPR {
+				m.refreshing = true
+				m.refreshRepos = nil
+				m.scanDone, m.scanTotal = 0, 0
+				return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, true), autoRefreshTickCmd(m.autoRefreshMins))
+			}
+			return m, autoRefreshTickCmd(m.autoRefreshMins)
+		}
+		return m, nil
+
+	case shellReturnMsg:
+		m.statusMsg = ""
 		return m, nil
 
 	case ghCheckMsg:
@@ -158,10 +234,7 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		m.offset = 0
 
 	case "G", "end":
-		m.cursor = n - 1
-		if m.cursor < 0 {
-			m.cursor = 0
-		}
+		m.cursor = max(0, n-1)
 		m.offset = clampOffset(n, visRows)
 
 	case "ctrl+f":
@@ -189,9 +262,17 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		m.state = stateDetail
 		m.commitsLoaded = false
 		m.detailCommits = nil
+		m.behindLoaded = false
+		m.behindCommits = nil
 		m.detailVP = viewport.New(m.width, m.detailVPHeight())
 		m.detailVP.SetContent(m.renderDetailContent())
-		return m, loadCommitsCmd(m.repos[m.cursor].Path)
+		cmds := []tea.Cmd{loadCommitsCmd(m.repos[m.cursor].Path)}
+		if m.repos[m.cursor].Behind > 0 {
+			cmds = append(cmds, loadBehindCommitsCmd(m.repos[m.cursor].Path))
+		} else {
+			m.behindLoaded = true
+		}
+		return m, tea.Batch(cmds...)
 
 	case "o":
 		if n > 0 && m.repos[m.cursor].PRUrl != "" {
@@ -205,15 +286,26 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.spinner.Tick, fetchRepoCmd(m.repos[m.cursor].Path))
 		}
 
+	case "ctrl+p":
+		if n > 0 && !m.fetchingPR && !m.refreshing {
+			m.fetchingPR = true
+			m.statusMsg = "pulling all repos…"
+			return m, tea.Batch(m.spinner.Tick, pullAllCmd(m.repos))
+		}
+
+	case "s":
+		if n > 0 {
+			return m, openShellCmd(m.repos[m.cursor].Path)
+		}
+
 	case "r":
-		m.repos = nil
-		m.cursor, m.offset = 0, 0
-		m.scanDone, m.scanTotal = 0, 0
-		m.prsLoading, m.fetchingPR = false, false
-		m.statusMsg = ""
-		m.state = stateScanning
-		// refresh always fetches so upstream changes are reflected
-		return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, true))
+		if !m.refreshing {
+			m.refreshing = true
+			m.refreshRepos = nil
+			m.scanDone, m.scanTotal = 0, 0
+			m.statusMsg = ""
+			return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, true))
+		}
 
 	// ── Sorting ───────────────────────────────────────────────────────────
 	case "0":
@@ -253,10 +345,10 @@ func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "up", "k":
-		m.detailVP.LineUp(1)
+		m.detailVP.ScrollUp(1)
 
 	case "down", "j":
-		m.detailVP.LineDown(1)
+		m.detailVP.ScrollDown(1)
 
 	case "o":
 		if len(m.repos) > 0 && m.repos[m.cursor].PRUrl != "" {
@@ -269,6 +361,18 @@ func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 			m.statusMsg = "pulling " + m.repos[m.cursor].Name + "…"
 			return m, tea.Batch(m.spinner.Tick, fetchRepoCmd(m.repos[m.cursor].Path))
 		}
+
+	case "s":
+		if len(m.repos) > 0 {
+			return m, openShellCmd(m.repos[m.cursor].Path)
+		}
+
+	case "r":
+		if len(m.repos) > 0 && !m.fetchingPR {
+			m.fetchingPR = true
+			m.statusMsg = "refreshing " + m.repos[m.cursor].Name + "…"
+			return m, tea.Batch(m.spinner.Tick, refreshSingleRepoCmd(m.repos[m.cursor].Path))
+		}
 	}
 	return m, nil
 }
@@ -277,13 +381,7 @@ func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 // = max(len(listHeaderLines), len(logoLines)) + 1 legend line.
 // listHeaderLines produces 6 items; logoLines has 8 → max = 8 + 1 = 9.
 func (m model) headerHeight() int {
-	infoH := 6 // listHeaderLines always produces 6 items
-	logoH := len(logoLines)
-	h := infoH
-	if logoH > infoH {
-		h = logoH
-	}
-	return h + 1 // +1 for the legend line
+	return max(6, len(logoLines)) + 1 // +1 for the legend line
 }
 
 func (m model) visibleRows() int {

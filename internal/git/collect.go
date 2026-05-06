@@ -59,7 +59,7 @@ func CollectRepo(path string, doFetch bool) RepoInfo {
 	}
 
 	if doFetch {
-		RunCmd([]string{"git", "fetch", "--quiet", "--prune"}, path, 30*time.Second)
+		RunCmd([]string{"git", "fetch", "--quiet", "--prune", "--recurse-submodules"}, path, 30*time.Second)
 	}
 
 	out, _, rc := RunCmd([]string{"git", "symbolic-ref", "--short", "HEAD"}, path, 10*time.Second)
@@ -126,6 +126,18 @@ func CollectRepo(path string, doFetch bool) RepoInfo {
 func RecentCommits(path string, n int) []string {
 	out, _, _ := RunCmd(
 		[]string{"git", "log", fmt.Sprintf("-%d", n), "--format=%h  %cr  %s"},
+		path, 10*time.Second,
+	)
+	if out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
+}
+
+// CommitsBehind returns up to n commits that are in the upstream but not in HEAD.
+func CommitsBehind(path string, n int) []string {
+	out, _, _ := RunCmd(
+		[]string{"git", "log", fmt.Sprintf("-%d", n), "--format=%h  %cr  %s", "HEAD..@{upstream}"},
 		path, 10*time.Second,
 	)
 	if out == "" {
