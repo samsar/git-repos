@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strconv"
+
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -161,6 +163,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = ""
 		return m, nil
 
+	case deleteRepoDoneMsg:
+		for i, r := range m.repos {
+			if r.Name == msg.name {
+				m.repos = append(m.repos[:i], m.repos[i+1:]...)
+				break
+			}
+		}
+		m.cursor = min(m.cursor, max(0, len(m.repos)-1))
+		m.statusMsg = "deleted " + msg.name
+		return m, nil
+
 	case ghCheckMsg:
 		m.ghUnavailable = msg.unavailable
 		return m, nil
@@ -199,11 +212,28 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Delete confirmation intercepts all keys
+	if m.showDeleteConfirm {
+		switch key {
+		case "y", "enter":
+			if len(m.repos) > 0 && m.cursor < len(m.repos) {
+				repo := m.repos[m.cursor]
+				m.showDeleteConfirm = false
+				m.statusMsg = "deleting " + repo.Name + "…"
+				return m, tea.Batch(m.spinner.Tick, deleteRepoDirCmd(repo))
+			}
+		}
+		m.showDeleteConfirm = false
+		return m, nil
+	}
+
 	switch m.state {
 	case stateList:
 		return m.handleListKey(key)
 	case stateDetail:
 		return m.handleDetailKey(key)
+	case stateSettings:
+		return m.handleSettingsKey(key)
 	}
 	return m, nil
 }
@@ -298,6 +328,14 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			return m, openShellCmd(m.repos[m.cursor].Path)
 		}
 
+	case "ctrl+d":
+		if n > 0 {
+			m.showDeleteConfirm = true
+		}
+
+	case "c":
+		m.state = stateSettings
+
 	case "r":
 		if !m.refreshing {
 			m.refreshing = true
@@ -355,6 +393,23 @@ func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 			return m, openURLCmd(m.repos[m.cursor].PRUrl)
 		}
 
+	case "g":
+		if len(m.repos) > 0 {
+			r := m.repos[m.cursor]
+			url := git.RemoteToWebURL(r.RemoteURL)
+			if url == "" {
+				for _, rem := range r.Remotes {
+					if u := git.RemoteToWebURL(rem.URL); u != "" {
+						url = u
+						break
+					}
+				}
+			}
+			if url != "" {
+				return m, openURLCmd(url)
+			}
+		}
+
 	case "p":
 		if len(m.repos) > 0 {
 			m.fetchingPR = true
@@ -373,6 +428,67 @@ func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 			m.statusMsg = "refreshing " + m.repos[m.cursor].Name + "…"
 			return m, tea.Batch(m.spinner.Tick, refreshSingleRepoCmd(m.repos[m.cursor].Path))
 		}
+
+	case "c":
+		m.state = stateSettings
+	}
+	return m, nil
+}
+
+func (m model) handleSettingsKey(key string) (tea.Model, tea.Cmd) {
+	if m.settingsEditing {
+		switch key {
+		case "enter":
+			if n, err := strconv.Atoi(m.settingsEditBuf); err == nil && n >= 0 {
+				m.autoRefreshMins = n
+			}
+			m.settingsEditing = false
+			m.settingsEditBuf = ""
+		case "esc":
+			m.settingsEditing = false
+			m.settingsEditBuf = ""
+		case "backspace":
+			if len(m.settingsEditBuf) > 0 {
+				m.settingsEditBuf = m.settingsEditBuf[:len(m.settingsEditBuf)-1]
+			}
+		default:
+			if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
+				m.settingsEditBuf += key
+			}
+		}
+		return m, nil
+	}
+
+	switch key {
+	case "j", "down":
+		if m.settingsCursor < 1 {
+			m.settingsCursor++
+		}
+	case "k", "up":
+		if m.settingsCursor > 0 {
+			m.settingsCursor--
+		}
+	case " ", "enter":
+		switch m.settingsCursor {
+		case 0: // auto_refresh_mins — start editing
+			m.settingsEditing = true
+			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
+		case 1: // boot_fetch — toggle
+			m.bootFetch = !m.bootFetch
+		}
+	case "e":
+		if m.settingsCursor == 0 {
+			m.settingsEditing = true
+			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
+		}
+	case "esc":
+		m.state = stateList
+		m.saveConfig()
+		var cmds []tea.Cmd
+		if m.autoRefreshMins > 0 {
+			cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
+		}
+		return m, tea.Batch(cmds...)
 	}
 	return m, nil
 }

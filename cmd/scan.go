@@ -84,10 +84,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// TUI mode
 	autoRefreshMins := 0
+	bootFetch := false
 	if cfg != nil {
 		autoRefreshMins = cfg.AutoRefreshMins
+		bootFetch = cfg.BootFetch
 	}
-	return tui.Run(scanDirs, flagFetch, !flagNoPRs, hidden, autoRefreshMins)
+	doFetch := flagFetch || bootFetch
+	return tui.Run(scanDirs, doFetch, !flagNoPRs, hidden, autoRefreshMins, bootFetch, config.Path())
 }
 
 func buildHiddenSet(cfg *config.Config) map[string]bool {

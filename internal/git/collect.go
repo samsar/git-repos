@@ -11,25 +11,31 @@ import (
 	"time"
 )
 
+type Remote struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
 type RepoInfo struct {
-	Path       string `json:"path,omitempty"`
-	Name       string `json:"name"`
-	Branch     string `json:"branch"`
-	Ahead      int    `json:"ahead,omitempty"`
-	Behind     int    `json:"behind,omitempty"`
-	NoUpstream bool   `json:"no_upstream,omitempty"`
-	Staged     int    `json:"staged,omitempty"`
-	Modified   int    `json:"modified,omitempty"`
-	Untracked  int    `json:"untracked,omitempty"`
-	StashCount int    `json:"stash_count,omitempty"`
-	LastTS     int64  `json:"last_ts,omitempty"`
-	LastRel    string `json:"last_rel,omitempty"`
-	LastMsg    string `json:"last_msg,omitempty"`
-	RemoteURL  string `json:"remote_url,omitempty"`
-	PRNumber   int    `json:"pr_number,omitempty"`
-	PRUrl      string `json:"pr_url,omitempty"`
-	PRState    string `json:"pr_state,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Path       string   `json:"path,omitempty"`
+	Name       string   `json:"name"`
+	Branch     string   `json:"branch"`
+	Ahead      int      `json:"ahead,omitempty"`
+	Behind     int      `json:"behind,omitempty"`
+	NoUpstream bool     `json:"no_upstream,omitempty"`
+	Staged     int      `json:"staged,omitempty"`
+	Modified   int      `json:"modified,omitempty"`
+	Untracked  int      `json:"untracked,omitempty"`
+	StashCount int      `json:"stash_count,omitempty"`
+	LastTS     int64    `json:"last_ts,omitempty"`
+	LastRel    string   `json:"last_rel,omitempty"`
+	LastMsg    string   `json:"last_msg,omitempty"`
+	RemoteURL  string   `json:"remote_url,omitempty"`
+	Remotes    []Remote `json:"remotes,omitempty"`
+	PRNumber   int      `json:"pr_number,omitempty"`
+	PRUrl      string   `json:"pr_url,omitempty"`
+	PRState    string   `json:"pr_state,omitempty"`
+	Error      string   `json:"error,omitempty"`
 }
 
 func RunCmd(args []string, cwd string, timeout time.Duration) (stdout, stderr string, code int) {
@@ -116,10 +122,34 @@ func CollectRepo(path string, doFetch bool) RepoInfo {
 		}
 	}
 
-	out, _, _ = RunCmd([]string{"git", "config", "--get", "remote.origin.url"}, path, 5*time.Second)
-	info.RemoteURL = out
+	out, _, _ = RunCmd([]string{"git", "remote"}, path, 5*time.Second)
+	for _, rname := range strings.Split(out, "\n") {
+		rname = strings.TrimSpace(rname)
+		if rname == "" {
+			continue
+		}
+		rurl, _, _ := RunCmd([]string{"git", "config", "--get", "remote." + rname + ".url"}, path, 5*time.Second)
+		if rurl != "" {
+			info.Remotes = append(info.Remotes, Remote{Name: rname, URL: rurl})
+			if rname == "origin" {
+				info.RemoteURL = rurl
+			}
+		}
+	}
 
 	return info
+}
+
+// RemoteToWebURL converts a git remote URL to a GitHub web URL, or "" if not a GitHub remote.
+func RemoteToWebURL(remote string) string {
+	if strings.HasPrefix(remote, "git@github.com:") {
+		path := strings.TrimPrefix(remote, "git@github.com:")
+		return "https://github.com/" + strings.TrimSuffix(path, ".git")
+	}
+	if strings.HasPrefix(remote, "https://github.com/") {
+		return strings.TrimSuffix(remote, ".git")
+	}
+	return ""
 }
 
 // RecentCommits returns the last n commit lines as "hash  time  subject".

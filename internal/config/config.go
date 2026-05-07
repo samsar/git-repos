@@ -14,6 +14,7 @@ type Config struct {
 	Dirs            []string `json:"dirs"`
 	Hidden          []string `json:"hidden,omitempty"`
 	AutoRefreshMins int      `json:"auto_refresh_mins,omitempty"` // 0 = disabled
+	BootFetch       bool     `json:"boot_fetch,omitempty"`        // run git fetch at startup
 }
 
 func Path() string {

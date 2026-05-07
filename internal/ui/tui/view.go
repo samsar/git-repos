@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -40,10 +41,13 @@ var helpNav = []helpEntry{
 
 var helpActions = []helpEntry{
 	{"o", "Open PR in browser"},
+	{"g", "Open repo in GitHub"},
 	{"p", "Pull repo"},
 	{"ctrl-p", "Pull all repos"},
 	{"s", "Open shell in repo"},
 	{"r", "Refresh all"},
+	{"ctrl-d", "Delete repo from disk"},
+	{"c", "Settings"},
 	{"q", "Quit"},
 	{"?", "Help"},
 }
@@ -97,6 +101,8 @@ func (m model) View() string {
 		return m.viewList()
 	case stateDetail:
 		return m.viewDetail()
+	case stateSettings:
+		return m.viewSettings()
 	}
 	return ""
 }
@@ -135,6 +141,9 @@ func (m model) viewScanning() string {
 // ── List view ─────────────────────────────────────────────────────────────────
 
 func (m model) viewList() string {
+	if m.showDeleteConfirm {
+		return m.viewConfirmDelete()
+	}
 	var b strings.Builder
 	b.WriteString(m.renderHeader3Zone(m.listHeaderLines()))
 	b.WriteString(m.sep())
@@ -236,7 +245,7 @@ func (m model) viewHelp() string {
 		b.WriteString(renderEntry(e1, colW) + renderEntry(e2, colW) + renderEntry(e3, m.width-2*colW) + "\n")
 	}
 
-	descStyle := lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color("246"))
+	descStyle := lipgloss.NewStyle().Background(bg).Foreground(colorSubduedGray)
 	nameStyle := lipgloss.NewStyle().Background(bg).Foreground(colorCyan).Bold(true)
 
 	renderSection := func(label string) {
@@ -267,14 +276,14 @@ func (m model) viewHelp() string {
 		return fill.Width(m.width).Render("  " + name + "  " + descStyle.Render(c.vals))
 	}
 
-	renderSection(" Columns ")
+	renderSection(" Column Descriptions ")
 	for _, c := range helpCols {
 		b.WriteString(renderColEntry(c) + "\n")
 	}
 
 	// Fill remaining lines
-	iconsRows := 1 + 1 + len(helpIcons)   // blank + sep + content
-	colsRows := 1 + 1 + len(helpCols)     // blank + sep + content
+	iconsRows := 1 + 1 + len(helpIcons) // blank + sep + content
+	colsRows := 1 + 1 + len(helpCols)   // blank + sep + content
 	written := 4 + maxRows + iconsRows + colsRows
 	for i := written; i < m.height; i++ {
 		b.WriteString(fill.Width(m.width).Render("") + "\n")
@@ -462,6 +471,7 @@ func (m model) actionLines() []string {
 		col1 = []act{
 			{"esc", "Back to list"},
 			{"o", "Open PR"},
+			{"g", "Open in GitHub"},
 			{"p", "Pull repo"},
 		}
 		col2 = []act{
@@ -479,8 +489,8 @@ func (m model) actionLines() []string {
 		}
 		col2 = []act{
 			{"s", "Open shell"},
+			{"ctrl+d", "Delete repo"},
 			{"r", "Refresh"},
-			{"q", "Quit"},
 			{"?", "Help"},
 		}
 	}
@@ -742,9 +752,22 @@ func (m model) renderDetailContent() string {
 		return "  " + kStr + pad + "  " + v + "\n"
 	}
 
+	urlStyle := lipgloss.NewStyle().Foreground(colorLightGray)
+
 	var b strings.Builder
 	b.WriteString("\n")
+	b.WriteString(field("Path", urlStyle.Render(r.Path)))
+	b.WriteString("\n")
 	b.WriteString(field("Branch", r.Branch))
+
+	// Show all remotes so forks display both origin and upstream.
+	for i, rem := range r.Remotes {
+		label := ""
+		if i == 0 {
+			label = "Remotes"
+		}
+		b.WriteString(field(label, cyanStyle.Render(rem.Name)+"  "+urlStyle.Render(rem.URL)))
+	}
 
 	if r.NoUpstream {
 		b.WriteString(field("Upstream", dimStyle.Render("none")))
@@ -771,7 +794,7 @@ func (m model) renderDetailContent() string {
 	if r.PRNumber > 0 {
 		b.WriteString("\n")
 		b.WriteString(field("PR", cyanStyle.Render(fmt.Sprintf("#%d  open", r.PRNumber))))
-		b.WriteString(field("", lipgloss.NewStyle().Foreground(lipgloss.Color("248")).Render(r.PRUrl)))
+		b.WriteString(field("", lipgloss.NewStyle().Foreground(colorLightGray).Render(r.PRUrl)))
 	}
 
 	// ── Commits behind ────────────────────────────────────────────────────────
@@ -804,6 +827,181 @@ func (m model) renderDetailContent() string {
 		}
 	}
 	return b.String()
+}
+
+// ── Delete confirm view ───────────────────────────────────────────────────────
+
+func (m model) viewConfirmDelete() string {
+	if len(m.repos) == 0 || m.cursor >= len(m.repos) {
+		return m.viewList()
+	}
+	r := m.repos[m.cursor]
+
+	bg := headerBg
+	greyS := lipgloss.NewStyle().Background(bg).Foreground(colorLightGray)
+	warnS := lipgloss.NewStyle().Background(bg).Foreground(attentionFg).Bold(true)
+	cyanS := lipgloss.NewStyle().Background(bg).Foreground(colorCyan)
+
+	var b strings.Builder
+	b.WriteString(m.renderHeader3Zone(m.listHeaderLines()))
+	b.WriteString(m.sep())
+
+	lines := []string{
+		"",
+		warnS.Render("  Delete repository from disk?"),
+		"",
+		greyS.Render("  Path: " + r.Path),
+		"",
+		greyS.Render("  This permanently deletes the directory and all its contents."),
+		greyS.Render("  This action cannot be undone."),
+		"",
+		"  " + cyanS.Render("<y>") + greyS.Render("  Confirm") + "     " + cyanS.Render("<Esc>") + greyS.Render("  Cancel"),
+		"",
+	}
+	for _, line := range lines {
+		b.WriteString(lipgloss.NewStyle().Background(bg).Width(m.width).Render(line) + "\n")
+	}
+
+	written := m.headerHeight() + 1 + len(lines)
+	for i := written; i < m.height-1; i++ {
+		b.WriteString(lipgloss.NewStyle().Background(bg).Width(m.width).Render("") + "\n")
+	}
+	b.WriteString(m.renderStatusBar())
+	return b.String()
+}
+
+// ── Settings view ─────────────────────────────────────────────────────────────
+
+func (m model) viewSettings() string {
+	bg := headerBg
+	fill := lipgloss.NewStyle().Background(bg)
+	kStyle := lipgloss.NewStyle().Background(bg).Foreground(colorCyan)
+	dStyle := lipgloss.NewStyle().Background(bg).Foreground(colorText)
+	dimS := lipgloss.NewStyle().Background(bg).Foreground(staleFg)
+	labelStyle := lipgloss.NewStyle().Background(bg).Foreground(colorPurple).Bold(true)
+	valStyle := lipgloss.NewStyle().Background(bg).Foreground(colorCyan)
+	boldBg := boldStyle.Background(bg)
+
+	var b strings.Builder
+
+	// Top bar
+	right := kStyle.Render("<esc>") + dStyle.Render(" Save & Back ")
+	gapW := max(1, m.width-lipgloss.Width(right))
+	b.WriteString(fill.Width(gapW).Render("") + right + "\n")
+
+	// Title separator
+	const settingsLabel = " Settings "
+	sw := (m.width - len(settingsLabel)) / 2
+	b.WriteString(sepStyle.Render(strings.Repeat("─", sw)) +
+		boldBg.Render(settingsLabel) +
+		sepStyle.Render(strings.Repeat("─", m.width-sw-len(settingsLabel))) + "\n")
+
+	b.WriteString("\n")
+	b.WriteString(fill.Width(m.width).Render("  "+dimS.Render("Config: ")+dStyle.Render(m.configPath)) + "\n")
+	b.WriteString("\n")
+
+	type settingRow struct {
+		label string
+		desc  string
+		kind  string // "int" or "bool"
+		val   string
+	}
+	rows := []settingRow{
+		{"Auto-refresh (mins)", "Re-scan all repos on a timer. 0 = disabled.", "int", strconv.Itoa(m.autoRefreshMins)},
+		{"Fetch on startup", "Run git fetch in each repo at startup.", "bool", boolStr(m.bootFetch)},
+	}
+
+	const labelW = 22
+	const valW = 14
+
+	for i, row := range rows {
+		cursor := "  "
+		if i == m.settingsCursor {
+			cursor = "▶ "
+		}
+
+		val := row.val
+		if m.settingsEditing && i == m.settingsCursor && row.kind == "int" {
+			val = "[" + m.settingsEditBuf + "_]"
+		}
+
+		lPad := labelW - len(row.label)
+		if lPad < 0 {
+			lPad = 0
+		}
+		var lStr string
+		if i == m.settingsCursor {
+			lStr = labelStyle.Render(row.label) + strings.Repeat(" ", lPad)
+		} else {
+			lStr = dStyle.Render(row.label) + strings.Repeat(" ", lPad)
+		}
+
+		vStr := valStyle.Render(fmt.Sprintf("%-*s", valW, val))
+		desc := dimS.Render(row.desc)
+		b.WriteString(fill.Width(m.width).Render(cursor+lStr+"  "+vStr+"  "+desc) + "\n")
+	}
+
+	// Info section
+	b.WriteString("\n")
+	const infoLabel = " Info "
+	iw := (m.width - len(infoLabel)) / 2
+	b.WriteString(sepStyle.Render(strings.Repeat("─", iw)) +
+		boldBg.Render(infoLabel) +
+		sepStyle.Render(strings.Repeat("─", m.width-iw-len(infoLabel))) + "\n")
+	b.WriteString("\n")
+
+	b.WriteString(fill.Width(m.width).Render("  "+boldBg.Render("Scan directories:")) + "\n")
+	for _, dir := range m.scanDirs {
+		b.WriteString(fill.Width(m.width).Render("    "+dStyle.Render(dir)) + "\n")
+	}
+	if len(m.scanDirs) == 0 {
+		b.WriteString(fill.Width(m.width).Render("    "+dimS.Render("(none — using current directory)")) + "\n")
+	}
+	b.WriteString("\n")
+
+	b.WriteString(fill.Width(m.width).Render("  "+boldBg.Render("Hidden repos:")) + "\n")
+	hiddenNames := make([]string, 0, len(m.hidden))
+	for name := range m.hidden {
+		hiddenNames = append(hiddenNames, name)
+	}
+	sort.Strings(hiddenNames)
+	if len(hiddenNames) == 0 {
+		b.WriteString(fill.Width(m.width).Render("    "+dimS.Render("(none)")) + "\n")
+	} else {
+		for _, name := range hiddenNames {
+			b.WriteString(fill.Width(m.width).Render("    "+dStyle.Render(name)) + "\n")
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(fill.Width(m.width).Render("  "+dimS.Render("Manage with: git repos config add/remove/hide/unhide")) + "\n")
+
+	// Keys footer
+	b.WriteString("\n")
+	const keysLabel = " Keys "
+	kw := (m.width - len(keysLabel)) / 2
+	b.WriteString(sepStyle.Render(strings.Repeat("─", kw)) +
+		boldBg.Render(keysLabel) +
+		sepStyle.Render(strings.Repeat("─", m.width-kw-len(keysLabel))) + "\n")
+	b.WriteString("\n")
+	keysHelp := kStyle.Render("<j/k>") + dStyle.Render(" Navigate  ") +
+		kStyle.Render("<space/enter>") + dStyle.Render(" Toggle / Edit  ") +
+		kStyle.Render("<e>") + dStyle.Render(" Edit number  ") +
+		kStyle.Render("<esc>") + dStyle.Render(" Save & back")
+	b.WriteString(fill.Width(m.width).Render("  "+keysHelp) + "\n")
+
+	// Fill remaining lines
+	written := strings.Count(b.String(), "\n")
+	for i := written; i < m.height; i++ {
+		b.WriteString(fill.Width(m.width).Render("") + "\n")
+	}
+	return b.String()
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }
 
 // ── Layout helpers ────────────────────────────────────────────────────────────

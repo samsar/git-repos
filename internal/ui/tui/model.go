@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
 )
 
@@ -23,6 +25,7 @@ const (
 	stateScanning viewState = iota
 	stateList
 	stateDetail
+	stateSettings
 )
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -40,6 +43,7 @@ type fetchDoneMsg git.RepoInfo
 type pullAllDoneMsg []git.RepoInfo
 type autoRefreshMsg struct{}
 type shellReturnMsg struct{}
+type deleteRepoDoneMsg struct{ name string }
 type errMsg struct{ err error }
 type ghCheckMsg struct{ unavailable bool }
 
@@ -49,12 +53,17 @@ type ghCheckMsg struct{ unavailable bool }
 // regardless of the terminal's own background colour.
 
 const (
-	colorCyan        lipgloss.Color = "51"  // accent / interactive elements
-	colorPurple      lipgloss.Color = "135" // header labels and logo
-	colorNearBlack   lipgloss.Color = "232" // text on coloured row backgrounds
-	colorText        lipgloss.Color = "252" // primary foreground
-	colorBrightWhite lipgloss.Color = "15"
-	colorStatusBarBg lipgloss.Color = "233"
+	colorCyan        lipgloss.Color = "51"  // #00ffff - cyan, accent / interactive elements
+	colorPurple      lipgloss.Color = "135" // #af5fff - medium orchid, header labels and logo
+	colorNearBlack   lipgloss.Color = "232" // #080808 - near black, text on coloured row backgrounds
+	colorText        lipgloss.Color = "252" // #d0d0d0 - light silver, primary foreground
+	colorBrightWhite lipgloss.Color = "15"  // #ffffff - white
+	colorStatusBarBg lipgloss.Color = "233" // #121212 - very dark grey, status bar background
+	colorDarkGray    lipgloss.Color = "237" // #3a3a3a - dark grey, separators
+	colorDimGray     lipgloss.Color = "244" // #808080 - dim grey, selected-stale row background
+	colorFaintGray   lipgloss.Color = "245" // #8a8a8a - faint grey, legend text
+	colorSubduedGray lipgloss.Color = "246" // #949494 - subdued grey, column headers and help descriptions
+	colorLightGray   lipgloss.Color = "248" // #a8a8a8 - light grey, URLs and paths
 )
 
 var (
@@ -78,7 +87,7 @@ var (
 	selectedAttentionStyle = lipgloss.NewStyle().Background(attentionFg).Foreground(colorNearBlack).Bold(true)
 	selectedPushStyle      = lipgloss.NewStyle().Background(pushFg).Foreground(colorNearBlack).Bold(true)
 	selectedOkStyle        = lipgloss.NewStyle().Background(okFg).Foreground(colorNearBlack).Bold(true)
-	selectedStaleStyle     = lipgloss.NewStyle().Background(lipgloss.Color("244")).Foreground(colorNearBlack).Bold(true)
+	selectedStaleStyle     = lipgloss.NewStyle().Background(colorDimGray).Foreground(colorNearBlack).Bold(true)
 
 	// Header
 	hdrInfoStyle = lipgloss.NewStyle().
@@ -94,10 +103,10 @@ var (
 			Padding(0, 1)
 	hdrKeyDescStyle = lipgloss.NewStyle().
 			Background(headerBg).
-			Foreground(lipgloss.Color("246"))
+			Foreground(colorSubduedGray)
 	hdrLegendTextStyle = lipgloss.NewStyle().
 				Background(headerBg).
-				Foreground(lipgloss.Color("245"))
+				Foreground(colorFaintGray)
 	hdrPurpleStyle = lipgloss.NewStyle().
 			Background(headerBg).
 			Foreground(colorPurple)
@@ -105,7 +114,7 @@ var (
 	// Column header
 	colHdrStyle = lipgloss.NewStyle().
 			Background(lipgloss.NoColor{}).
-			Foreground(lipgloss.Color("246")).
+			Foreground(colorSubduedGray).
 			Bold(true)
 	colHdrSortedStyle = lipgloss.NewStyle().
 				Background(lipgloss.NoColor{}).
@@ -113,7 +122,7 @@ var (
 				Bold(true)
 
 	// Misc
-	sepStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("237"))
+	sepStyle  = lipgloss.NewStyle().Foreground(colorDarkGray)
 	boldStyle = lipgloss.NewStyle().Bold(true).Foreground(colorText)
 	textStyle = lipgloss.NewStyle().Foreground(colorText)
 	dimStyle  = lipgloss.NewStyle().Foreground(staleFg)
@@ -142,6 +151,8 @@ type model struct {
 	doFetch         bool
 	noPRs           bool
 	autoRefreshMins int
+	bootFetch       bool
+	configPath      string
 
 	// state
 	state     viewState
@@ -175,8 +186,14 @@ type model struct {
 	refreshRepos  []git.RepoInfo
 
 	// ui
-	spinner  spinner.Model
-	showHelp bool
+	spinner           spinner.Model
+	showHelp          bool
+	showDeleteConfirm bool
+
+	// settings
+	settingsCursor  int
+	settingsEditing bool
+	settingsEditBuf string
 
 	statusMsg string
 
@@ -184,7 +201,7 @@ type model struct {
 	ghUnavailable bool
 }
 
-func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int) model {
+func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath string) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(colorCyan)
@@ -197,7 +214,25 @@ func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefresh
 		sortCol:         git.SortStatus,
 		hidden:          hidden,
 		autoRefreshMins: autoRefreshMins,
+		bootFetch:       bootFetch,
+		configPath:      configPath,
 	}
+}
+
+// saveConfig persists current settings to disk.
+func (m model) saveConfig() {
+	hidden := make([]string, 0, len(m.hidden))
+	for name := range m.hidden {
+		hidden = append(hidden, name)
+	}
+	sort.Strings(hidden)
+	cfg := &config.Config{
+		Dirs:            m.scanDirs,
+		Hidden:          hidden,
+		AutoRefreshMins: m.autoRefreshMins,
+		BootFetch:       m.bootFetch,
+	}
+	_ = config.Save(cfg)
 }
 
 // colWidths returns dynamic widths for the three resizable columns: BRANCH, SYNC,
@@ -359,11 +394,22 @@ func openShellCmd(path string) tea.Cmd {
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	c := exec.Command(shell)
+	// Clear the screen before launching the shell so it doesn't look like
+	// we're shelling into an existing session.
+	c := exec.Command("sh", "-c", "clear; exec "+shell)
 	c.Dir = path
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return shellReturnMsg{}
 	})
+}
+
+func deleteRepoDirCmd(info git.RepoInfo) tea.Cmd {
+	return func() tea.Msg {
+		if err := os.RemoveAll(info.Path); err != nil {
+			return errMsg{err}
+		}
+		return deleteRepoDoneMsg{name: info.Name}
+	}
 }
 
 func openURLCmd(url string) tea.Cmd {
@@ -385,8 +431,8 @@ func openBrowser(url string) {
 }
 
 // Run starts the full-screen TUI program.
-func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int) error {
-	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins)
+func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath string) error {
+	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins, bootFetch, configPath)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
