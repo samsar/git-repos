@@ -185,6 +185,10 @@ type model struct {
 	refreshing    bool
 	refreshRepos  []git.RepoInfo
 
+	// search
+	searching   bool
+	searchQuery string
+
 	// ui
 	spinner           spinner.Model
 	showHelp          bool

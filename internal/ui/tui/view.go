@@ -40,6 +40,7 @@ var helpNav = []helpEntry{
 }
 
 var helpActions = []helpEntry{
+	{"/", "Search / filter list"},
 	{"o", "Open PR in browser"},
 	{"g", "Open repo in GitHub"},
 	{"p", "Pull repo"},
@@ -151,13 +152,14 @@ func (m model) viewList() string {
 	b.WriteString(m.sep())
 
 	visRows := m.visibleRows()
+	filtered := m.displayRepos()
 	for i := 0; i < visRows; i++ {
 		idx := m.offset + i
-		if idx >= len(m.repos) {
+		if idx >= len(filtered) {
 			b.WriteString(fillBg("", m.width) + "\n")
 			continue
 		}
-		b.WriteString(m.renderRow(m.repos[idx], idx == m.cursor) + "\n")
+		b.WriteString(m.renderRow(filtered[idx], idx == m.cursor) + "\n")
 	}
 	b.WriteString(m.sep())
 	b.WriteString(m.renderStatusBar())
@@ -428,11 +430,13 @@ func (m model) detailInfoLines() []string {
 }
 
 // repoCountLine builds the stats line: "29 repos  ! 2  ↑ 4  ✓ 23".
+// When a search filter is active it shows "5 / 29 repos".
 func (m model) repoCountLine() string {
 	now := time.Now().Unix()
 	total := len(m.repos)
+	display := m.displayRepos()
 	var att, push, ok, stale int
-	for _, r := range m.repos {
+	for _, r := range display {
 		switch git.StatusGroup(r, now) {
 		case git.GroupAttention:
 			att++
@@ -445,7 +449,12 @@ func (m model) repoCountLine() string {
 		}
 	}
 
-	s := hdrInfoStyle.Render(fmt.Sprintf("%d repos", total))
+	var s string
+	if m.searchQuery != "" {
+		s = hdrInfoStyle.Render(fmt.Sprintf("%d / %d repos", len(display), total))
+	} else {
+		s = hdrInfoStyle.Render(fmt.Sprintf("%d repos", total))
+	}
 	if att > 0 {
 		s += attentionStyle.Background(headerBg).Render(fmt.Sprintf("  ! %d", att))
 	}
@@ -483,6 +492,7 @@ func (m model) actionLines() []string {
 	} else {
 		col1 = []act{
 			{"enter", "Detail view"},
+			{"/", "Search"},
 			{"o", "Open PR"},
 			{"p", "Pull repo"},
 			{"ctrl+p", "Pull all"},
@@ -599,11 +609,25 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	return b.String()
 }
 
-// renderStatusBar renders the bottom status line showing async operation state.
+// renderStatusBar renders the bottom status line showing async operation state
+// or the active search input.
 func (m model) renderStatusBar() string {
 	style := lipgloss.NewStyle().
 		Background(colorStatusBarBg).
 		Foreground(staleFg)
+
+	if m.searching {
+		queryStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorCyan)
+		content := queryStyle.Render("  /" + m.searchQuery + "█")
+		return style.Width(m.width).Render(content) + "\n"
+	}
+
+	if m.searchQuery != "" {
+		queryStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorCyan)
+		hintStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorFaintGray)
+		content := queryStyle.Render("  /"+m.searchQuery) + hintStyle.Render("  (/ to edit · esc to clear)")
+		return style.Width(m.width).Render(content) + "\n"
+	}
 
 	var content string
 	switch {
