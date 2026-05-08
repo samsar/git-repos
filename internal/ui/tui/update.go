@@ -195,8 +195,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// ctrl+c always quits, even in search mode
+	if key == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	// Search mode intercepts all remaining keys while active
+	if m.searching {
+		return m.handleSearchKey(msg)
+	}
+
 	// Global: quit
-	if key == "q" || key == "ctrl+c" {
+	if key == "q" {
 		return m, tea.Quit
 	}
 
@@ -216,8 +226,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.showDeleteConfirm {
 		switch key {
 		case "y", "enter":
-			if len(m.repos) > 0 && m.cursor < len(m.repos) {
-				repo := m.repos[m.cursor]
+			filtered := m.displayRepos()
+			if len(filtered) > 0 && m.cursor < len(filtered) {
+				repo := filtered[m.cursor]
 				m.showDeleteConfirm = false
 				m.statusMsg = "deleting " + repo.Name + "…"
 				return m, tea.Batch(m.spinner.Tick, deleteRepoDirCmd(repo))
@@ -239,7 +250,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
-	n := len(m.repos)
+	filtered := m.displayRepos()
+	n := len(filtered)
 	visRows := m.visibleRows()
 
 	switch key {
@@ -285,10 +297,17 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			m.offset = m.cursor
 		}
 
+	case "/":
+		m.searching = true
+		// Keep existing query so user can refine it; cursor stays put.
+		return m, nil
+
 	case "enter":
 		if n == 0 {
 			return m, nil
 		}
+		// Translate filtered cursor → full m.repos index for detail view.
+		m.cursor = m.filteredToFullIdx(m.cursor)
 		m.state = stateDetail
 		m.commitsLoaded = false
 		m.detailCommits = nil
@@ -305,15 +324,15 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case "o":
-		if n > 0 && m.repos[m.cursor].PRUrl != "" {
-			return m, openURLCmd(m.repos[m.cursor].PRUrl)
+		if n > 0 && filtered[m.cursor].PRUrl != "" {
+			return m, openURLCmd(filtered[m.cursor].PRUrl)
 		}
 
 	case "p":
 		if n > 0 {
 			m.fetchingPR = true
-			m.statusMsg = "pulling " + m.repos[m.cursor].Name + "…"
-			return m, tea.Batch(m.spinner.Tick, fetchRepoCmd(m.repos[m.cursor].Path))
+			m.statusMsg = "pulling " + filtered[m.cursor].Name + "…"
+			return m, tea.Batch(m.spinner.Tick, fetchRepoCmd(filtered[m.cursor].Path))
 		}
 
 	case "ctrl+p":
@@ -325,12 +344,19 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 
 	case "s":
 		if n > 0 {
-			return m, openShellCmd(m.repos[m.cursor].Path)
+			return m, openShellCmd(filtered[m.cursor].Path)
 		}
 
 	case "ctrl+d":
 		if n > 0 {
 			m.showDeleteConfirm = true
+		}
+
+	case "esc":
+		if m.searchQuery != "" {
+			m.searchQuery = ""
+			m.cursor = 0
+			m.offset = 0
 		}
 
 	case "c":
@@ -379,6 +405,8 @@ func (m model) applySort(col git.SortColumn) model {
 func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
+		// Translate full m.repos cursor back to filtered-list cursor.
+		m.cursor = m.fullToFilteredIdx(m.cursor)
 		m.state = stateList
 		return m, nil
 
