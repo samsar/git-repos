@@ -112,6 +112,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fetchDoneMsg:
 		updated := git.RepoInfo(msg)
+		// Detail view follows the active repo across re-sorts so the user
+		// keeps looking at the repo they just pulled.
+		activePath := ""
+		if m.state == stateDetail && m.cursor < len(m.repos) {
+			activePath = m.repos[m.cursor].Path
+		}
 		for i, r := range m.repos {
 			if r.Path == updated.Path {
 				m.repos[i] = updated
@@ -121,7 +127,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fetchingPR = false
 		m.statusMsg = "pulled " + updated.Name
 		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
-		m.cursor = min(m.cursor, max(0, len(m.repos)-1))
+		if activePath != "" {
+			for i, r := range m.repos {
+				if r.Path == activePath {
+					m.cursor = i
+					break
+				}
+			}
+		} else {
+			m.cursor = min(m.cursor, max(0, len(m.repos)-1))
+		}
 		if m.state == stateDetail {
 			// Reload behind commits — upstream may have changed after a fetch/pull.
 			m.behindLoaded = false
@@ -359,7 +374,7 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			m.offset = 0
 		}
 
-	case "c":
+	case "z":
 		m.state = stateSettings
 
 	case "r":
@@ -457,7 +472,7 @@ func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.spinner.Tick, refreshSingleRepoCmd(m.repos[m.cursor].Path))
 		}
 
-	case "c":
+	case "z":
 		m.state = stateSettings
 	}
 	return m, nil
@@ -522,10 +537,10 @@ func (m model) handleSettingsKey(key string) (tea.Model, tea.Cmd) {
 }
 
 // headerHeight returns the number of lines the header occupies.
-// = max(len(listHeaderLines), len(logoLines)) + 1 legend line.
-// listHeaderLines produces 6 items; logoLines has 8 → max = 8 + 1 = 9.
+// Rows 0..len(logoLines)-1 hold the logo (and the info / shortcut columns),
+// and the last row holds the legend.
 func (m model) headerHeight() int {
-	return max(6, len(logoLines)) + 1 // +1 for the legend line
+	return len(logoLines)
 }
 
 func (m model) visibleRows() int {
