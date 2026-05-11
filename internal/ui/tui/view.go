@@ -198,12 +198,12 @@ func (m model) viewHelp() string {
 
 	renderEntry := func(e helpEntry, w int) string {
 		if e.key == "" {
-			return fill.Width(w).Render("    " + noteStyle.Render(e.desc))
+			return fill.Width(w).Render(fill.Render("    ") + noteStyle.Render(e.desc))
 		}
 		k := key(e.key)
 		kw := lipgloss.Width(k)
 		pad := max(0, 16-kw)
-		return fill.Width(w).Render(" " + k + strings.Repeat(" ", pad) + dStyle.Render(e.desc))
+		return fill.Width(w).Render(fill.Render(" ") + k + fill.Render(strings.Repeat(" ", pad)) + dStyle.Render(e.desc))
 	}
 
 	// Top bar
@@ -250,8 +250,9 @@ func (m model) viewHelp() string {
 	descStyle := lipgloss.NewStyle().Background(bg).Foreground(colorSubduedGray)
 	nameStyle := lipgloss.NewStyle().Background(bg).Foreground(colorCyan).Bold(true)
 
+	blank := fill.Width(m.width).Render("") + "\n"
 	renderSection := func(label string) {
-		b.WriteString("\n")
+		b.WriteString(blank)
 		sideW := (m.width - len(label)) / 2
 		b.WriteString(sepStyle.Render(strings.Repeat("─", sideW)) +
 			boldStyle.Background(bg).Render(label) +
@@ -263,7 +264,7 @@ func (m model) viewHelp() string {
 	renderIconEntry := func(idx int) string {
 		ic := helpIcons[idx]
 		styled := lipgloss.NewStyle().Background(bg).Foreground(iconFgs[idx]).Bold(true).Render(ic.icon)
-		return fill.Width(m.width).Render("  " + styled + "  " + descStyle.Render(ic.meaning))
+		return fill.Width(m.width).Render(fill.Render("  ") + styled + fill.Render("  ") + descStyle.Render(ic.meaning))
 	}
 
 	renderSection(" Status icons ")
@@ -275,7 +276,7 @@ func (m model) viewHelp() string {
 	const nameW = 14 // wide enough for "LAST CHANGED"
 	renderColEntry := func(c colDesc) string {
 		name := nameStyle.Render(fmt.Sprintf("%-*s", nameW, c.name))
-		return fill.Width(m.width).Render("  " + name + "  " + descStyle.Render(c.vals))
+		return fill.Width(m.width).Render(fill.Render("  ") + name + fill.Render("  ") + descStyle.Render(c.vals))
 	}
 
 	renderSection(" Column Descriptions ")
@@ -924,6 +925,7 @@ func (m model) viewSettings() string {
 	boldBg := boldStyle.Background(bg)
 
 	var b strings.Builder
+	blank := fill.Width(m.width).Render("") + "\n"
 
 	// Top bar
 	right := kStyle.Render("<esc>") + dStyle.Render(" Save & Back ")
@@ -937,9 +939,9 @@ func (m model) viewSettings() string {
 		boldBg.Render(settingsLabel) +
 		sepStyle.Render(strings.Repeat("─", m.width-sw-len(settingsLabel))) + "\n")
 
-	b.WriteString("\n")
-	b.WriteString(fill.Width(m.width).Render("  "+dimS.Render("Config: ")+dStyle.Render(m.configPath)) + "\n")
-	b.WriteString("\n")
+	b.WriteString(blank)
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Config: ")+dStyle.Render(m.configPath)) + "\n")
+	b.WriteString(blank)
 
 	type settingRow struct {
 		label string
@@ -972,67 +974,65 @@ func (m model) viewSettings() string {
 		}
 		var lStr string
 		if i == m.settingsCursor {
-			lStr = labelStyle.Render(row.label) + strings.Repeat(" ", lPad)
+			lStr = labelStyle.Render(row.label) + fill.Render(strings.Repeat(" ", lPad))
 		} else {
-			lStr = dStyle.Render(row.label) + strings.Repeat(" ", lPad)
+			lStr = dStyle.Render(row.label) + fill.Render(strings.Repeat(" ", lPad))
 		}
 
 		vStr := valStyle.Render(fmt.Sprintf("%-*s", valW, val))
 		desc := dimS.Render(row.desc)
-		b.WriteString(fill.Width(m.width).Render(cursor+lStr+"  "+vStr+"  "+desc) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render(cursor)+lStr+fill.Render("  ")+vStr+fill.Render("  ")+desc) + "\n")
 	}
 
 	// Info section
-	b.WriteString("\n")
+	b.WriteString(blank)
 	const infoLabel = " Info "
 	iw := (m.width - len(infoLabel)) / 2
 	b.WriteString(sepStyle.Render(strings.Repeat("─", iw)) +
 		boldBg.Render(infoLabel) +
 		sepStyle.Render(strings.Repeat("─", m.width-iw-len(infoLabel))) + "\n")
-	b.WriteString("\n")
+	b.WriteString(blank)
 
-	b.WriteString(fill.Width(m.width).Render("  "+boldBg.Render("Scan directories:")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+boldBg.Render("Scan directories:")) + "\n")
 	for _, dir := range m.scanDirs {
-		b.WriteString(fill.Width(m.width).Render("    "+dStyle.Render(dir)) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dStyle.Render(dir)) + "\n")
 	}
 	if len(m.scanDirs) == 0 {
-		b.WriteString(fill.Width(m.width).Render("    "+dimS.Render("(none — using current directory)")) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dimS.Render("(none — using current directory)")) + "\n")
 	}
-	b.WriteString("\n")
+	b.WriteString(blank)
 
-	b.WriteString(fill.Width(m.width).Render("  "+boldBg.Render("Hidden repos:")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+boldBg.Render("Hidden repos:")) + "\n")
 	hiddenNames := make([]string, 0, len(m.hidden))
 	for name := range m.hidden {
 		hiddenNames = append(hiddenNames, name)
 	}
 	sort.Strings(hiddenNames)
 	if len(hiddenNames) == 0 {
-		b.WriteString(fill.Width(m.width).Render("    "+dimS.Render("(none)")) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dimS.Render("(none)")) + "\n")
 	} else {
 		for _, name := range hiddenNames {
-			b.WriteString(fill.Width(m.width).Render("    "+dStyle.Render(name)) + "\n")
+			b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dStyle.Render(name)) + "\n")
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(fill.Width(m.width).Render("  "+dimS.Render("Manage with: git repos config add/remove/hide/unhide")) + "\n")
+	b.WriteString(blank)
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Manage with: git repos config add/remove/hide/unhide")) + "\n")
 
-	b.WriteString("\n")
+	b.WriteString(blank)
 	const keysLabel = " Keys "
 	kw := (m.width - len(keysLabel)) / 2
 	b.WriteString(sepStyle.Render(strings.Repeat("─", kw)) +
 		boldBg.Render(keysLabel) +
 		sepStyle.Render(strings.Repeat("─", m.width-kw-len(keysLabel))) + "\n")
-	b.WriteString("\n")
+	b.WriteString(blank)
 	settingsKeys := []helpEntry{
-		{"j/k", "Navigate"},
-		{"space/enter", "Toggle / Edit"},
-		{"e", "Edit number"},
+		{"enter", "Toggle / Edit"},
 		{"esc", "Save & back"},
 	}
 	for _, sk := range settingsKeys {
 		keyStr := kStyle.Render("<" + sk.key + ">")
 		pad := max(0, 18-lipgloss.Width(keyStr))
-		b.WriteString(fill.Width(m.width).Render("  "+keyStr+strings.Repeat(" ", pad)+dStyle.Render(sk.desc)) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+keyStr+fill.Render(strings.Repeat(" ", pad))+dStyle.Render(sk.desc)) + "\n")
 	}
 
 	// Fill remaining lines
