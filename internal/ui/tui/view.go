@@ -48,7 +48,7 @@ var helpActions = []helpEntry{
 	{"s", "Open shell in repo"},
 	{"r", "Refresh all"},
 	{"ctrl-d", "Delete repo from disk"},
-	{"c", "Settings"},
+	{"z", "Settings"},
 	{"q", "Quit"},
 	{"?", "Help"},
 }
@@ -135,7 +135,7 @@ func (m model) viewScanning() string {
 	style := lipgloss.NewStyle().
 		Background(colorStatusBarBg).
 		Foreground(staleFg)
-	b.WriteString(style.Width(m.width).Render(msg) + "\n")
+	b.WriteString(style.Width(m.width).Render(msg))
 	return b.String()
 }
 
@@ -198,12 +198,12 @@ func (m model) viewHelp() string {
 
 	renderEntry := func(e helpEntry, w int) string {
 		if e.key == "" {
-			return fill.Width(w).Render("    " + noteStyle.Render(e.desc))
+			return fill.Width(w).Render(fill.Render("    ") + noteStyle.Render(e.desc))
 		}
 		k := key(e.key)
 		kw := lipgloss.Width(k)
 		pad := max(0, 16-kw)
-		return fill.Width(w).Render(" " + k + strings.Repeat(" ", pad) + dStyle.Render(e.desc))
+		return fill.Width(w).Render(fill.Render(" ") + k + fill.Render(strings.Repeat(" ", pad)) + dStyle.Render(e.desc))
 	}
 
 	// Top bar
@@ -250,8 +250,9 @@ func (m model) viewHelp() string {
 	descStyle := lipgloss.NewStyle().Background(bg).Foreground(colorSubduedGray)
 	nameStyle := lipgloss.NewStyle().Background(bg).Foreground(colorCyan).Bold(true)
 
+	blank := fill.Width(m.width).Render("") + "\n"
 	renderSection := func(label string) {
-		b.WriteString("\n")
+		b.WriteString(blank)
 		sideW := (m.width - len(label)) / 2
 		b.WriteString(sepStyle.Render(strings.Repeat("─", sideW)) +
 			boldStyle.Background(bg).Render(label) +
@@ -263,7 +264,7 @@ func (m model) viewHelp() string {
 	renderIconEntry := func(idx int) string {
 		ic := helpIcons[idx]
 		styled := lipgloss.NewStyle().Background(bg).Foreground(iconFgs[idx]).Bold(true).Render(ic.icon)
-		return fill.Width(m.width).Render("  " + styled + "  " + descStyle.Render(ic.meaning))
+		return fill.Width(m.width).Render(fill.Render("  ") + styled + fill.Render("  ") + descStyle.Render(ic.meaning))
 	}
 
 	renderSection(" Status icons ")
@@ -275,7 +276,7 @@ func (m model) viewHelp() string {
 	const nameW = 14 // wide enough for "LAST CHANGED"
 	renderColEntry := func(c colDesc) string {
 		name := nameStyle.Render(fmt.Sprintf("%-*s", nameW, c.name))
-		return fill.Width(m.width).Render("  " + name + "  " + descStyle.Render(c.vals))
+		return fill.Width(m.width).Render(fill.Render("  ") + name + fill.Render("  ") + descStyle.Render(c.vals))
 	}
 
 	renderSection(" Column Descriptions ")
@@ -290,7 +291,7 @@ func (m model) viewHelp() string {
 	for i := written; i < m.height; i++ {
 		b.WriteString(fill.Width(m.width).Render("") + "\n")
 	}
-	return b.String()
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // ── Header rendering ──────────────────────────────────────────────────────────
@@ -306,7 +307,6 @@ func (m model) listHeaderLines() []string {
 	}
 
 	lines := []string{
-		"",
 		hdrPurpleStyle.Render("  Root: ") + hdrInfoStyle.Render(dir),
 	}
 
@@ -421,7 +421,6 @@ func (m model) detailInfoLines() []string {
 	branchMax := max(0, leftW-lipgloss.Width(branchLabel))
 
 	return []string{
-		"",
 		hdrPurpleStyle.Render("  Root: ") + boldStyle.Background(headerBg).Render(r.Name),
 		branchLabel + hdrInfoStyle.Render(trunc(r.Branch, branchMax)),
 		hdrPurpleStyle.Render("  Upstream: ") + syncStr + hdrDimStyle.Render("   Changes: ") + changesStr,
@@ -473,10 +472,18 @@ func (m model) repoCountLine() string {
 // actionLines returns one line per action for the middle header zone,
 // adjusted to show only the actions available in the current view.
 func (m model) actionLines() []string {
+	return m.actionLinesFor(m.state)
+}
+
+// actionLinesFor returns the action shortcuts for a specific view state.
+// Split out so the header can compute a consistent centering width across
+// views (otherwise the shortcut block jumps horizontally between list and
+// detail because their action sets have different widest lines).
+func (m model) actionLinesFor(state viewState) []string {
 	type act struct{ key, desc string }
 
 	var col1, col2 []act
-	if m.state == stateDetail {
+	if state == stateDetail {
 		col1 = []act{
 			{"esc", "Back to list"},
 			{"o", "Open PR"},
@@ -501,6 +508,7 @@ func (m model) actionLines() []string {
 			{"s", "Open shell"},
 			{"ctrl+d", "Delete repo"},
 			{"r", "Refresh"},
+			{"z", "Settings"},
 			{"?", "Help"},
 		}
 	}
@@ -520,10 +528,9 @@ func (m model) actionLines() []string {
 	renderEntry := func(a act, maxKeyW int) string {
 		k := hdrKeyStyle.Render("<" + a.key + ">")
 		pad := strings.Repeat(" ", maxKeyW-lipgloss.Width(k))
-		return k + pad + hdrKeyDescStyle.Render(" "+a.desc)
+		return k + hdrKeyDescStyle.Render(pad+" "+a.desc)
 	}
 
-	// measure widest col1 entry for consistent column gap
 	col1W := 0
 	for _, a := range col1 {
 		if w := lipgloss.Width(renderEntry(a, maxKeyW1)); w > col1W {
@@ -531,13 +538,12 @@ func (m model) actionLines() []string {
 		}
 	}
 
-	// one blank line so the first action aligns with Root: (row 1)
-	lines := []string{""}
+	var lines []string
 	for i := 0; i < max(len(col1), len(col2)); i++ {
-		row := strings.Repeat(" ", col1W+4) // default: empty col1 + gap
+		row := hdrKeyDescStyle.Render(strings.Repeat(" ", col1W+4))
 		if i < len(col1) {
 			e := renderEntry(col1[i], maxKeyW1)
-			row = e + strings.Repeat(" ", max(0, col1W-lipgloss.Width(e)+4))
+			row = e + hdrKeyDescStyle.Render(strings.Repeat(" ", max(0, col1W-lipgloss.Width(e)+4)))
 		}
 		if i < len(col2) {
 			row += renderEntry(col2[i], maxKeyW2)
@@ -548,13 +554,14 @@ func (m model) actionLines() []string {
 }
 
 // renderHeader3Zone renders: [left info ~1/3] [middle actions ~1/3] [right logo].
+// All three zones start at row 0 so the first info line (Root: …), first
+// shortcut, and first logo line share the top row.
 func (m model) renderHeader3Zone(leftLines []string) string {
 	midLines := m.actionLines()
 
 	fill := lipgloss.NewStyle().Background(headerBg)
 	logoS := lipgloss.NewStyle().Foreground(colorPurple).Background(headerBg).Bold(true)
 
-	// Split width into thirds; logo eats into the right third.
 	thirdW := m.width / 3
 	showLogo := m.width-thirdW*2 >= logoColW+8
 	rightW := 0
@@ -564,24 +571,41 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	leftW := thirdW
 	midW := m.width - leftW - rightW
 
-	// Legend is injected one row after leftLines ends, leaving an empty row between
-	// Status: / the last action entry and the legend.
-	legendIdx := len(leftLines) + 1
-	totalRows := max(max(legendIdx+1, len(midLines)), len(logoLines))
+	// Center based on the widest possible shortcut block (the list view's
+	// action set is always wider than the detail view's). Using the current
+	// view's width would shift the shortcuts horizontally between views.
+	refLines := m.actionLinesFor(stateList)
+	maxMidW := 0
+	for _, ml := range refLines {
+		if w := lipgloss.Width(ml); w > maxMidW {
+			maxMidW = w
+		}
+	}
+	midLeftPad := max(0, m.width/2-maxMidW/2-leftW)
+
+	totalRows := max(len(midLines), len(logoLines))
+	if totalRows <= len(leftLines) {
+		totalRows = len(leftLines) + 1
+	}
+	// Legend anchored to the last row of the header, right above the separator.
+	legendIdx := totalRows - 1
+
+	renderLogoCell := func(i int) string {
+		if !showLogo {
+			return ""
+		}
+		if i >= 0 && i < len(logoLines) {
+			return fill.Render("  ") + logoS.Render(logoLines[i]) + fill.Render("  ")
+		}
+		return fill.Width(rightW).Render("")
+	}
 
 	var b strings.Builder
 	for i := 0; i < totalRows; i++ {
 		if i == legendIdx {
-			// Legend spans left+mid columns so it has room to breathe.
 			legend := m.legendContent()
 			row := fill.Width(leftW + midW).Render(legend)
-			if showLogo {
-				if i < len(logoLines) {
-					row += fill.Render("  ") + logoS.Render(logoLines[i]) + fill.Render("  ")
-				} else {
-					row += fill.Width(rightW).Render("")
-				}
-			}
+			row += renderLogoCell(i)
 			b.WriteString(row + "\n")
 			continue
 		}
@@ -592,17 +616,10 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 		}
 		mid := ""
 		if i < len(midLines) {
-			mid = "  " + midLines[i]
+			mid = strings.Repeat(" ", midLeftPad) + midLines[i]
 		}
 
-		row := fill.Width(leftW).Render(left) + fill.Width(midW).Render(mid)
-		if showLogo {
-			if i < len(logoLines) {
-				row += fill.Render("  ") + logoS.Render(logoLines[i]) + fill.Render("  ")
-			} else {
-				row += fill.Width(rightW).Render("")
-			}
-		}
+		row := fill.Width(leftW).Render(left) + fill.Width(midW).Render(mid) + renderLogoCell(i)
 		b.WriteString(row + "\n")
 	}
 
@@ -619,14 +636,14 @@ func (m model) renderStatusBar() string {
 	if m.searching {
 		queryStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorCyan)
 		content := queryStyle.Render("  /" + m.searchQuery + "█")
-		return style.Width(m.width).Render(content) + "\n"
+		return style.Width(m.width).Render(content)
 	}
 
 	if m.searchQuery != "" {
 		queryStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorCyan)
 		hintStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorFaintGray)
 		content := queryStyle.Render("  /"+m.searchQuery) + hintStyle.Render("  (/ to edit · esc to clear)")
-		return style.Width(m.width).Render(content) + "\n"
+		return style.Width(m.width).Render(content)
 	}
 
 	var content string
@@ -643,13 +660,14 @@ func (m model) renderStatusBar() string {
 		content = "  " + m.statusMsg
 	}
 
-	return style.Width(m.width).Render(content) + "\n"
+	return style.Width(m.width).Render(content)
 }
 
 // legendContent returns the colour legend string (no width padding).
 func (m model) legendContent() string {
+	bg := lipgloss.NewStyle().Background(headerBg)
 	entry := func(icon, desc string, st lipgloss.Style) string {
-		return "  " + st.Background(headerBg).Render(icon) +
+		return bg.Render("  ") + st.Background(headerBg).Render(icon) +
 			hdrLegendTextStyle.Render(" "+desc)
 	}
 	return entry("!", "needs attention", attentionStyle) +
@@ -661,7 +679,7 @@ func (m model) legendContent() string {
 // ── Column header ─────────────────────────────────────────────────────────────
 
 func (m model) renderColHeader() string {
-	bg := lipgloss.NoColor{}
+	bg := headerBg
 	col := func(sortID git.SortColumn, name string, width int) string {
 		label := name
 		var s lipgloss.Style
@@ -907,6 +925,7 @@ func (m model) viewSettings() string {
 	boldBg := boldStyle.Background(bg)
 
 	var b strings.Builder
+	blank := fill.Width(m.width).Render("") + "\n"
 
 	// Top bar
 	right := kStyle.Render("<esc>") + dStyle.Render(" Save & Back ")
@@ -920,9 +939,9 @@ func (m model) viewSettings() string {
 		boldBg.Render(settingsLabel) +
 		sepStyle.Render(strings.Repeat("─", m.width-sw-len(settingsLabel))) + "\n")
 
-	b.WriteString("\n")
-	b.WriteString(fill.Width(m.width).Render("  "+dimS.Render("Config: ")+dStyle.Render(m.configPath)) + "\n")
-	b.WriteString("\n")
+	b.WriteString(blank)
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Config: ")+dStyle.Render(m.configPath)) + "\n")
+	b.WriteString(blank)
 
 	type settingRow struct {
 		label string
@@ -955,70 +974,73 @@ func (m model) viewSettings() string {
 		}
 		var lStr string
 		if i == m.settingsCursor {
-			lStr = labelStyle.Render(row.label) + strings.Repeat(" ", lPad)
+			lStr = labelStyle.Render(row.label) + fill.Render(strings.Repeat(" ", lPad))
 		} else {
-			lStr = dStyle.Render(row.label) + strings.Repeat(" ", lPad)
+			lStr = dStyle.Render(row.label) + fill.Render(strings.Repeat(" ", lPad))
 		}
 
 		vStr := valStyle.Render(fmt.Sprintf("%-*s", valW, val))
 		desc := dimS.Render(row.desc)
-		b.WriteString(fill.Width(m.width).Render(cursor+lStr+"  "+vStr+"  "+desc) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render(cursor)+lStr+fill.Render("  ")+vStr+fill.Render("  ")+desc) + "\n")
 	}
 
 	// Info section
-	b.WriteString("\n")
+	b.WriteString(blank)
 	const infoLabel = " Info "
 	iw := (m.width - len(infoLabel)) / 2
 	b.WriteString(sepStyle.Render(strings.Repeat("─", iw)) +
 		boldBg.Render(infoLabel) +
 		sepStyle.Render(strings.Repeat("─", m.width-iw-len(infoLabel))) + "\n")
-	b.WriteString("\n")
+	b.WriteString(blank)
 
-	b.WriteString(fill.Width(m.width).Render("  "+boldBg.Render("Scan directories:")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+boldBg.Render("Scan directories:")) + "\n")
 	for _, dir := range m.scanDirs {
-		b.WriteString(fill.Width(m.width).Render("    "+dStyle.Render(dir)) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dStyle.Render(dir)) + "\n")
 	}
 	if len(m.scanDirs) == 0 {
-		b.WriteString(fill.Width(m.width).Render("    "+dimS.Render("(none — using current directory)")) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dimS.Render("(none — using current directory)")) + "\n")
 	}
-	b.WriteString("\n")
+	b.WriteString(blank)
 
-	b.WriteString(fill.Width(m.width).Render("  "+boldBg.Render("Hidden repos:")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+boldBg.Render("Hidden repos:")) + "\n")
 	hiddenNames := make([]string, 0, len(m.hidden))
 	for name := range m.hidden {
 		hiddenNames = append(hiddenNames, name)
 	}
 	sort.Strings(hiddenNames)
 	if len(hiddenNames) == 0 {
-		b.WriteString(fill.Width(m.width).Render("    "+dimS.Render("(none)")) + "\n")
+		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dimS.Render("(none)")) + "\n")
 	} else {
 		for _, name := range hiddenNames {
-			b.WriteString(fill.Width(m.width).Render("    "+dStyle.Render(name)) + "\n")
+			b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dStyle.Render(name)) + "\n")
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(fill.Width(m.width).Render("  "+dimS.Render("Manage with: git repos config add/remove/hide/unhide")) + "\n")
+	b.WriteString(blank)
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Manage with: git repos config add/remove/hide/unhide")) + "\n")
 
-	// Keys footer
-	b.WriteString("\n")
+	b.WriteString(blank)
 	const keysLabel = " Keys "
 	kw := (m.width - len(keysLabel)) / 2
 	b.WriteString(sepStyle.Render(strings.Repeat("─", kw)) +
 		boldBg.Render(keysLabel) +
 		sepStyle.Render(strings.Repeat("─", m.width-kw-len(keysLabel))) + "\n")
-	b.WriteString("\n")
-	keysHelp := kStyle.Render("<j/k>") + dStyle.Render(" Navigate  ") +
-		kStyle.Render("<space/enter>") + dStyle.Render(" Toggle / Edit  ") +
-		kStyle.Render("<e>") + dStyle.Render(" Edit number  ") +
-		kStyle.Render("<esc>") + dStyle.Render(" Save & back")
-	b.WriteString(fill.Width(m.width).Render("  "+keysHelp) + "\n")
+	b.WriteString(blank)
+	settingsKeys := []helpEntry{
+		{"enter", "Toggle / Edit"},
+		{"esc", "Save & back"},
+	}
+	for _, sk := range settingsKeys {
+		keyStr := kStyle.Render("<" + sk.key + ">")
+		pad := max(0, 18-lipgloss.Width(keyStr))
+		b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+keyStr+fill.Render(strings.Repeat(" ", pad))+dStyle.Render(sk.desc)) + "\n")
+	}
 
 	// Fill remaining lines
 	written := strings.Count(b.String(), "\n")
 	for i := written; i < m.height; i++ {
 		b.WriteString(fill.Width(m.width).Render("") + "\n")
 	}
-	return b.String()
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func boolStr(b bool) string {

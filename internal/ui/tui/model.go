@@ -67,9 +67,10 @@ const (
 )
 
 var (
-	// row background — transparent so rows inherit the terminal's native background
-	rowBg    = lipgloss.NoColor{}
-	headerBg = lipgloss.Color("232")
+	// All views share a uniform near-black background. The status bar overrides
+	// this with its own darker grey at the bottom of the screen.
+	headerBg lipgloss.Color = "232"
+	rowBg                   = headerBg
 
 	// Status colours — applied as foreground to the entire row
 	attentionFg = lipgloss.Color("196") // bright red
@@ -113,16 +114,16 @@ var (
 
 	// Column header
 	colHdrStyle = lipgloss.NewStyle().
-			Background(lipgloss.NoColor{}).
+			Background(headerBg).
 			Foreground(colorSubduedGray).
 			Bold(true)
 	colHdrSortedStyle = lipgloss.NewStyle().
-				Background(lipgloss.NoColor{}).
+				Background(headerBg).
 				Foreground(colorCyan).
 				Bold(true)
 
 	// Misc
-	sepStyle  = lipgloss.NewStyle().Foreground(colorDarkGray)
+	sepStyle  = lipgloss.NewStyle().Foreground(colorDarkGray).Background(headerBg)
 	boldStyle = lipgloss.NewStyle().Bold(true).Foreground(colorText)
 	textStyle = lipgloss.NewStyle().Foreground(colorText)
 	dimStyle  = lipgloss.NewStyle().Foreground(staleFg)
