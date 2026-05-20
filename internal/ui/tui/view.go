@@ -654,6 +654,8 @@ func (m model) renderStatusBar() string {
 		} else {
 			content = fmt.Sprintf("  %s  Refreshing…", m.spinner.View())
 		}
+	case m.prsLoading:
+		content = fmt.Sprintf("  %s  Loading PRs…", m.spinner.View())
 	case m.fetchingPR:
 		content = fmt.Sprintf("  %s  %s", m.spinner.View(), m.statusMsg)
 	case m.statusMsg != "":
