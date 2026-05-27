@@ -26,7 +26,8 @@ type RepoInfo struct {
 	Staged     int      `json:"staged,omitempty"`
 	Modified   int      `json:"modified,omitempty"`
 	Untracked  int      `json:"untracked,omitempty"`
-	StashCount int      `json:"stash_count,omitempty"`
+	StagedFiles []string `json:"staged_files,omitempty"`
+	StashCount  int      `json:"stash_count,omitempty"`
 	LastTS     int64    `json:"last_ts,omitempty"`
 	LastRel    string   `json:"last_rel,omitempty"`
 	LastMsg    string   `json:"last_msg,omitempty"`
@@ -99,6 +100,7 @@ func CollectRepo(path string, doFetch bool) RepoInfo {
 		} else {
 			if xy[0] != ' ' && xy[0] != '?' {
 				info.Staged++
+				info.StagedFiles = append(info.StagedFiles, strings.TrimSpace(line[2:]))
 			}
 			if xy[1] != ' ' && xy[1] != '?' {
 				info.Modified++
