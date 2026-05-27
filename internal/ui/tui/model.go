@@ -73,7 +73,7 @@ var (
 	rowBg                   = headerBg
 
 	// Status colours — applied as foreground to the entire row
-	attentionFg = lipgloss.Color("196") // bright red
+	attentionFg = lipgloss.Color("203") // soft coral
 	pushFg      = lipgloss.Color("75")  // cornflower blue
 	okFg        = lipgloss.Color("82")  // bright green
 	staleFg     = lipgloss.Color("241") // medium gray
