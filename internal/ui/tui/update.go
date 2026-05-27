@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/version"
 )
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -138,15 +139,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = min(m.cursor, max(0, len(m.repos)-1))
 		}
 		if m.state == stateDetail {
-			// Reload behind commits — upstream may have changed after a fetch/pull.
+			m.commitsLoaded = false
+			m.detailCommits = nil
 			m.behindLoaded = false
 			m.behindCommits = nil
 			m.detailVP.SetContent(m.renderDetailContent())
+			cmds := []tea.Cmd{loadCommitsCmd(updated.Path)}
 			if updated.Behind > 0 {
-				return m, loadBehindCommitsCmd(updated.Path)
+				cmds = append(cmds, loadBehindCommitsCmd(updated.Path))
+			} else {
+				m.behindLoaded = true
 			}
-			m.behindLoaded = true
-			m.detailVP.SetContent(m.renderDetailContent())
+			return m, tea.Batch(cmds...)
 		}
 		return m, nil
 
@@ -191,6 +195,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ghCheckMsg:
 		m.ghUnavailable = msg.unavailable
+		return m, nil
+
+	case versionCheckMsg:
+		if msg.latest != "" {
+			m.latestVersion = msg.latest
+			m.updateAvailable = version.IsNewer(m.version, msg.latest)
+		}
 		return m, nil
 
 	case errMsg:

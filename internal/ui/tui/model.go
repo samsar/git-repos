@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/version"
 )
 
 // ── View states ───────────────────────────────────────────────────────────────
@@ -47,6 +48,7 @@ type shellReturnMsg struct{}
 type deleteRepoDoneMsg struct{ name string }
 type errMsg struct{ err error }
 type ghCheckMsg struct{ unavailable bool }
+type versionCheckMsg struct{ latest string }
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 //
@@ -208,8 +210,10 @@ type model struct {
 
 	statusMsg string
 
-	hidden        map[string]bool
-	ghUnavailable bool
+	hidden          map[string]bool
+	ghUnavailable   bool
+	latestVersion   string
+	updateAvailable bool
 }
 
 func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) model {
@@ -323,7 +327,7 @@ func (m model) colWidths() (branch, sync, msg int) {
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick, startScanCmd(m.scanDirs, m.doFetch)}
+	cmds := []tea.Cmd{m.spinner.Tick, startScanCmd(m.scanDirs, m.doFetch), checkVersionCmd}
 	if !m.noPRs {
 		cmds = append(cmds, checkGHCmd)
 	}
@@ -344,6 +348,10 @@ func checkGHCmd() tea.Msg {
 	defer cancel()
 	err = exec.CommandContext(ctx, path, "auth", "token").Run()
 	return ghCheckMsg{unavailable: err != nil}
+}
+
+func checkVersionCmd() tea.Msg {
+	return versionCheckMsg{latest: version.FetchLatest()}
 }
 
 // ── tea.Cmd helpers ───────────────────────────────────────────────────────────

@@ -288,7 +288,11 @@ func (m model) viewHelp() string {
 	type versionEntry struct{ name, ver string }
 	var versions []versionEntry
 	if m.version != "" {
-		versions = append(versions, versionEntry{"gr", m.version})
+		grVer := m.version
+		if m.updateAvailable {
+			grVer += "  " + attentionStyle.Render("update available: "+m.latestVersion)
+		}
+		versions = append(versions, versionEntry{"gr", grVer})
 	}
 	if m.gitVersion != "" {
 		versions = append(versions, versionEntry{"git", m.gitVersion})
@@ -607,9 +611,6 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	midLeftPad := max(0, m.width/2-maxMidW/2-leftW)
 
 	logoH := len(logoLines)
-	if m.version != "" {
-		logoH++
-	}
 	totalRows := max(len(midLines), logoH)
 	if totalRows <= len(leftLines) {
 		totalRows = len(leftLines) + 1
@@ -618,18 +619,27 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	legendIdx := totalRows - 1
 
 	versionS := lipgloss.NewStyle().Foreground(colorPurple).Background(headerBg).Bold(true)
+	versionUpdateS := lipgloss.NewStyle().Foreground(attentionFg).Background(headerBg).Bold(true)
 
 	renderLogoCell := func(i int) string {
 		if !showLogo {
 			return ""
 		}
+		if i == len(logoLines)-1 && m.version != "" {
+			trimmed := strings.TrimRight(logoLines[i], " ")
+			trimmedW := lipgloss.Width(trimmed)
+			vLabel := m.version
+			vs := versionS
+			if m.updateAvailable {
+				vLabel = "!" + strings.TrimPrefix(m.version, "v")
+				vs = versionUpdateS
+			}
+			vW := lipgloss.Width(vLabel)
+			gap := max(1, logoColW-2-trimmedW-vW)
+			return fill.Render("  ") + logoS.Render(trimmed) + fill.Render(strings.Repeat(" ", gap)) + vs.Render(vLabel)
+		}
 		if i >= 0 && i < len(logoLines) {
 			return fill.Render("  ") + logoS.Render(logoLines[i]) + fill.Render("  ")
-		}
-		if i == len(logoLines) && m.version != "" {
-			v := versionS.Render(m.version)
-			pad := max(0, logoColW-lipgloss.Width(v))
-			return fill.Render(strings.Repeat(" ", pad)) + v
 		}
 		return fill.Width(rightW).Render("")
 	}
@@ -864,6 +874,14 @@ func (m model) renderDetailContent() string {
 	}
 
 	b.WriteString(field("Changes", detailChanges(r)))
+	if len(r.StagedFiles) > 0 {
+		b.WriteString("\n")
+		b.WriteString(boldStyle.Render("  Staged changes") + "\n")
+		b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
+		for _, f := range r.StagedFiles {
+			b.WriteString(attentionStyle.Render("  "+f) + "\n")
+		}
+	}
 	if r.StashCount > 0 {
 		b.WriteString(field("Stash", fmt.Sprintf("%d changeset(s)", r.StashCount)))
 	}
