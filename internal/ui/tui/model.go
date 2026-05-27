@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -155,6 +156,11 @@ type model struct {
 	bootFetch       bool
 	configPath      string
 
+	// versions
+	version    string
+	gitVersion string
+	ghVersion  string
+
 	// state
 	state     viewState
 	repos     []git.RepoInfo
@@ -206,7 +212,7 @@ type model struct {
 	ghUnavailable bool
 }
 
-func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath string) model {
+func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(colorCyan)
@@ -221,7 +227,39 @@ func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefresh
 		autoRefreshMins: autoRefreshMins,
 		bootFetch:       bootFetch,
 		configPath:      configPath,
+		version:         normalizeVersion(version),
+		gitVersion:      detectCLIVersion("git", "--version"),
+		ghVersion:       detectCLIVersion("gh", "--version"),
 	}
+}
+
+func normalizeVersion(v string) string {
+	if v != "" && !strings.HasPrefix(v, "v") {
+		v = "v" + v
+	}
+	return v
+}
+
+func detectCLIVersion(name string, args ...string) string {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, args...).Output()
+	if err != nil {
+		return ""
+	}
+	// Parse first line: "git version 2.39.0" or "gh version 2.40.1 (2023-12-13)"
+	line := strings.SplitN(string(out), "\n", 2)[0]
+	fields := strings.Fields(line)
+	for _, f := range fields {
+		if len(f) > 0 && f[0] >= '0' && f[0] <= '9' {
+			return f
+		}
+	}
+	return strings.TrimSpace(line)
 }
 
 // saveConfig persists current settings to disk.
@@ -436,8 +474,8 @@ func openBrowser(url string) {
 }
 
 // Run starts the full-screen TUI program.
-func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath string) error {
-	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins, bootFetch, configPath)
+func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) error {
+	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins, bootFetch, configPath, version)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

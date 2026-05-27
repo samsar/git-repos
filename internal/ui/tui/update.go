@@ -538,9 +538,13 @@ func (m model) handleSettingsKey(key string) (tea.Model, tea.Cmd) {
 
 // headerHeight returns the number of lines the header occupies.
 // Rows 0..len(logoLines)-1 hold the logo (and the info / shortcut columns),
-// and the last row holds the legend.
+// plus one row for the version below the logo, and the last row holds the legend.
 func (m model) headerHeight() int {
-	return len(logoLines)
+	h := len(logoLines)
+	if m.version != "" {
+		h++
+	}
+	return h
 }
 
 func (m model) visibleRows() int {

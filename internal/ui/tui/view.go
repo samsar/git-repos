@@ -284,10 +284,33 @@ func (m model) viewHelp() string {
 		b.WriteString(renderColEntry(c) + "\n")
 	}
 
+	// ── Versions section ──────────────────────────────────────────────────────
+	type versionEntry struct{ name, ver string }
+	var versions []versionEntry
+	if m.version != "" {
+		versions = append(versions, versionEntry{"gr", m.version})
+	}
+	if m.gitVersion != "" {
+		versions = append(versions, versionEntry{"git", m.gitVersion})
+	}
+	if m.ghVersion != "" {
+		versions = append(versions, versionEntry{"gh", m.ghVersion})
+	}
+
+	versionsRows := 0
+	if len(versions) > 0 {
+		renderSection(" Versions ")
+		for _, v := range versions {
+			name := nameStyle.Render(fmt.Sprintf("%-*s", nameW, v.name))
+			b.WriteString(fill.Width(m.width).Render(fill.Render("  ") + name + fill.Render("  ") + descStyle.Render(v.ver)) + "\n")
+		}
+		versionsRows = 1 + 1 + len(versions) // blank + sep + content
+	}
+
 	// Fill remaining lines
 	iconsRows := 1 + 1 + len(helpIcons) // blank + sep + content
 	colsRows := 1 + 1 + len(helpCols)   // blank + sep + content
-	written := 4 + maxRows + iconsRows + colsRows
+	written := 4 + maxRows + iconsRows + colsRows + versionsRows
 	for i := written; i < m.height; i++ {
 		b.WriteString(fill.Width(m.width).Render("") + "\n")
 	}
@@ -306,21 +329,16 @@ func (m model) listHeaderLines() []string {
 		dir = fmt.Sprintf("%d directories", len(m.scanDirs))
 	}
 
+	leftW := m.width / 3
+	rootLabel := hdrPurpleStyle.Render("  Root: ")
+	rootMax := max(1, leftW-lipgloss.Width(rootLabel))
+
 	lines := []string{
-		hdrPurpleStyle.Render("  Root: ") + hdrInfoStyle.Render(dir),
+		rootLabel + hdrInfoStyle.Render(trunc(dir, rootMax)),
 	}
 
-	if s := m.nonMainSummary(); s != "" {
-		lines = append(lines, s)
-	} else {
-		lines = append(lines, "")
-	}
-
-	if s := m.openPRSummary(); s != "" {
-		lines = append(lines, s)
-	} else {
-		lines = append(lines, "")
-	}
+	lines = append(lines, m.nonMainSummary())
+	lines = append(lines, m.openPRSummary())
 
 	// Status last — detailed breakdown sits under the summary counts
 	lines = append(lines, hdrPurpleStyle.Render("  Status: ")+m.repoCountLine())
@@ -328,8 +346,13 @@ func (m model) listHeaderLines() []string {
 	return lines
 }
 
-// nonMainSummary returns "  Feature Branches: N" or "" if none.
+// nonMainSummary always renders the "Feature Branches:" label so it stays
+// visible during bootup and refresh, showing "…" until the scan finishes.
 func (m model) nonMainSummary() string {
+	label := hdrPurpleStyle.Render("  Feature Branches: ")
+	if m.state == stateScanning && m.scanDone < m.scanTotal {
+		return label + hdrDimStyle.Render("…")
+	}
 	count := 0
 	for _, r := range m.repos {
 		if !git.IsMainBranch(r.Branch) && r.Branch != "?" && r.Error == "" {
@@ -337,9 +360,9 @@ func (m model) nonMainSummary() string {
 		}
 	}
 	if count == 0 {
-		return ""
+		return label + hdrDimStyle.Render("—")
 	}
-	return hdrPurpleStyle.Render("  Feature Branches: ") + hdrInfoStyle.Render(fmt.Sprintf("%d", count))
+	return label + hdrInfoStyle.Render(fmt.Sprintf("%d", count))
 }
 
 // openPRSummary always renders the "PRs:" label when PRs are enabled so it
@@ -583,12 +606,18 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	}
 	midLeftPad := max(0, m.width/2-maxMidW/2-leftW)
 
-	totalRows := max(len(midLines), len(logoLines))
+	logoH := len(logoLines)
+	if m.version != "" {
+		logoH++
+	}
+	totalRows := max(len(midLines), logoH)
 	if totalRows <= len(leftLines) {
 		totalRows = len(leftLines) + 1
 	}
 	// Legend anchored to the last row of the header, right above the separator.
 	legendIdx := totalRows - 1
+
+	versionS := lipgloss.NewStyle().Foreground(colorPurple).Background(headerBg).Bold(true)
 
 	renderLogoCell := func(i int) string {
 		if !showLogo {
@@ -597,6 +626,11 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 		if i >= 0 && i < len(logoLines) {
 			return fill.Render("  ") + logoS.Render(logoLines[i]) + fill.Render("  ")
 		}
+		if i == len(logoLines) && m.version != "" {
+			v := versionS.Render(m.version)
+			pad := max(0, logoColW-lipgloss.Width(v))
+			return fill.Render(strings.Repeat(" ", pad)) + v
+		}
 		return fill.Width(rightW).Render("")
 	}
 
@@ -604,7 +638,7 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	for i := 0; i < totalRows; i++ {
 		if i == legendIdx {
 			legend := m.legendContent()
-			row := fill.Width(leftW + midW).Render(legend)
+			row := fill.Width(leftW + midW).MaxWidth(leftW + midW).Render(legend)
 			row += renderLogoCell(i)
 			b.WriteString(row + "\n")
 			continue
@@ -619,7 +653,7 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 			mid = strings.Repeat(" ", midLeftPad) + midLines[i]
 		}
 
-		row := fill.Width(leftW).Render(left) + fill.Width(midW).Render(mid) + renderLogoCell(i)
+		row := fill.Width(leftW).MaxWidth(leftW).Render(left) + fill.Width(midW).MaxWidth(midW).Render(mid) + renderLogoCell(i)
 		b.WriteString(row + "\n")
 	}
 
