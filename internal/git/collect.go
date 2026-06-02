@@ -17,26 +17,28 @@ type Remote struct {
 }
 
 type RepoInfo struct {
-	Path       string   `json:"path,omitempty"`
-	Name       string   `json:"name"`
-	Branch     string   `json:"branch"`
-	Ahead      int      `json:"ahead,omitempty"`
-	Behind     int      `json:"behind,omitempty"`
-	NoUpstream bool     `json:"no_upstream,omitempty"`
-	Staged     int      `json:"staged,omitempty"`
-	Modified   int      `json:"modified,omitempty"`
-	Untracked  int      `json:"untracked,omitempty"`
-	StagedFiles []string `json:"staged_files,omitempty"`
-	StashCount  int      `json:"stash_count,omitempty"`
-	LastTS     int64    `json:"last_ts,omitempty"`
-	LastRel    string   `json:"last_rel,omitempty"`
-	LastMsg    string   `json:"last_msg,omitempty"`
-	RemoteURL  string   `json:"remote_url,omitempty"`
-	Remotes    []Remote `json:"remotes,omitempty"`
-	PRNumber   int      `json:"pr_number,omitempty"`
-	PRUrl      string   `json:"pr_url,omitempty"`
-	PRState    string   `json:"pr_state,omitempty"`
-	Error      string   `json:"error,omitempty"`
+	Path           string   `json:"path,omitempty"`
+	Name           string   `json:"name"`
+	Branch         string   `json:"branch"`
+	Ahead          int      `json:"ahead,omitempty"`
+	Behind         int      `json:"behind,omitempty"`
+	NoUpstream     bool     `json:"no_upstream,omitempty"`
+	Staged         int      `json:"staged,omitempty"`
+	Modified       int      `json:"modified,omitempty"`
+	Untracked      int      `json:"untracked,omitempty"`
+	StagedFiles    []string `json:"staged_files,omitempty"`
+	ModifiedFiles  []string `json:"modified_files,omitempty"`
+	UntrackedFiles []string `json:"untracked_files,omitempty"`
+	StashCount     int      `json:"stash_count,omitempty"`
+	LastTS         int64    `json:"last_ts,omitempty"`
+	LastRel        string   `json:"last_rel,omitempty"`
+	LastMsg        string   `json:"last_msg,omitempty"`
+	RemoteURL      string   `json:"remote_url,omitempty"`
+	Remotes        []Remote `json:"remotes,omitempty"`
+	PRNumber       int      `json:"pr_number,omitempty"`
+	PRUrl          string   `json:"pr_url,omitempty"`
+	PRState        string   `json:"pr_state,omitempty"`
+	Error          string   `json:"error,omitempty"`
 }
 
 func RunCmd(args []string, cwd string, timeout time.Duration) (stdout, stderr string, code int) {
@@ -97,6 +99,7 @@ func CollectRepo(path string, doFetch bool) RepoInfo {
 		xy := line[:2]
 		if xy == "??" {
 			info.Untracked++
+			info.UntrackedFiles = append(info.UntrackedFiles, strings.TrimSpace(line[2:]))
 		} else {
 			if xy[0] != ' ' && xy[0] != '?' {
 				info.Staged++
@@ -104,6 +107,7 @@ func CollectRepo(path string, doFetch bool) RepoInfo {
 			}
 			if xy[1] != ' ' && xy[1] != '?' {
 				info.Modified++
+				info.ModifiedFiles = append(info.ModifiedFiles, strings.TrimSpace(line[2:]))
 			}
 		}
 	}

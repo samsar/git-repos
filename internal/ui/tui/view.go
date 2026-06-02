@@ -882,6 +882,22 @@ func (m model) renderDetailContent() string {
 			b.WriteString(attentionStyle.Render("  "+f) + "\n")
 		}
 	}
+	if len(r.ModifiedFiles) > 0 {
+		b.WriteString("\n")
+		b.WriteString(boldStyle.Render("  Modified files") + "\n")
+		b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
+		for _, f := range r.ModifiedFiles {
+			b.WriteString(attentionStyle.Render("  "+f) + "\n")
+		}
+	}
+	if len(r.UntrackedFiles) > 0 {
+		b.WriteString("\n")
+		b.WriteString(boldStyle.Render("  Untracked files") + "\n")
+		b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
+		for _, f := range r.UntrackedFiles {
+			b.WriteString(pushStyle.Render("  "+f) + "\n")
+		}
+	}
 	if r.StashCount > 0 {
 		b.WriteString(field("Stash", fmt.Sprintf("%d changeset(s)", r.StashCount)))
 	}
