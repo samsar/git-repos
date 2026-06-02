@@ -95,6 +95,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case singleRepoPRLoadedMsg:
+		updated := git.RepoInfo(msg)
+		activePath := ""
+		if m.state == stateDetail && m.cursor < len(m.repos) {
+			activePath = m.repos[m.cursor].Path
+		}
+		for i, r := range m.repos {
+			if r.Path == updated.Path {
+				m.repos[i] = updated
+				break
+			}
+		}
+		m.prsLoading = false
+		m.prsEverLoaded = true
+		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
+		if activePath != "" {
+			for i, r := range m.repos {
+				if r.Path == activePath {
+					m.cursor = i
+					break
+				}
+			}
+		}
+		if m.state == stateDetail {
+			m.detailVP.SetContent(m.renderDetailContent())
+		}
+		return m, nil
+
 	case commitsLoadedMsg:
 		m.detailCommits = []string(msg)
 		m.commitsLoaded = true
@@ -149,6 +177,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, loadBehindCommitsCmd(updated.Path))
 			} else {
 				m.behindLoaded = true
+			}
+			if !m.noPRs {
+				m.prsLoading = true
+				cmds = append(cmds, m.spinner.Tick, loadPRForRepoCmd(updated))
 			}
 			return m, tea.Batch(cmds...)
 		}

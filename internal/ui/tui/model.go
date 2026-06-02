@@ -39,6 +39,7 @@ type scanStartedMsg struct {
 type repoScannedMsg git.ScanResult
 type scanDoneMsg struct{}
 type prsLoadedMsg []git.RepoInfo
+type singleRepoPRLoadedMsg git.RepoInfo
 type commitsLoadedMsg []string
 type behindCommitsLoadedMsg []string
 type fetchDoneMsg git.RepoInfo
@@ -382,6 +383,13 @@ func loadPRsCmd(repos []git.RepoInfo) tea.Cmd {
 		copy(cp, repos)
 		git.FetchAndMatchPRs(cp)
 		return prsLoadedMsg(cp)
+	}
+}
+
+func loadPRForRepoCmd(repo git.RepoInfo) tea.Cmd {
+	return func() tea.Msg {
+		git.FetchAndMatchPRForRepo(&repo)
+		return singleRepoPRLoadedMsg(repo)
 	}
 }
 
