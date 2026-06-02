@@ -14,6 +14,33 @@ func FetchAndMatchPRs(repos []RepoInfo) {
 	matchPRs(repos, reposWithPRs)
 }
 
+// FetchAndMatchPRForRepo fetches open PRs authored by the current user for a
+// single repo and updates the repo's PR fields to match its currently
+// checked-out branch. It queries the repo directly with `gh pr list` rather than
+// the broad cross-repo search, so it stays fast for a single-repo refresh.
+func FetchAndMatchPRForRepo(repo *RepoInfo) {
+	prs := fetchPRDetails([]RepoInfo{*repo})
+
+	repo.PRNumber = 0
+	repo.PRUrl = ""
+	repo.PRState = ""
+
+	var best *prDetail
+	for i := range prs {
+		if prs[i].HeadRefName != repo.Branch {
+			continue
+		}
+		if best == nil || prs[i].Number < best.Number {
+			best = &prs[i]
+		}
+	}
+	if best != nil {
+		repo.PRNumber = best.Number
+		repo.PRUrl = best.URL
+		repo.PRState = best.State
+	}
+}
+
 // fetchOpenPRs does a broad search to find which repos have open PRs authored by
 // the current user. It returns only repo keys (owner/repo), not full PR details,
 // because gh search prs does not include headRefName — the branch name needed to
