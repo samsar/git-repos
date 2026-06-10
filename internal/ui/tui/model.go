@@ -302,6 +302,7 @@ func (m model) colWidths() (branch, sync, msg int) {
 		syncMin    = 9  // "no-remote" is 9 chars
 		syncPref   = 12
 		msgMin     = 12
+		msgFloor   = 6 // LAST MSG yields below msgMin (down to here) so a long BRANCH fits
 	)
 
 	// branchPref tracks the longest branch name present (clamped to a sane
@@ -335,8 +336,20 @@ func (m model) colWidths() (branch, sync, msg int) {
 	sync += grow
 	leftover -= grow
 
-	// Everything remaining goes to LAST MSG.
-	msg += leftover
+	if leftover > 0 {
+		// Spare room: give it to LAST MSG.
+		msg += leftover
+		return
+	}
+
+	// No spare room but BRANCH is still short of its preferred width (a long
+	// branch on a slightly-too-narrow terminal). Borrow from LAST MSG down to
+	// msgFloor so the full branch name shows — LAST MSG shrinks first.
+	if branch < branchPref {
+		borrow := min(branchPref-branch, msg-msgFloor)
+		branch += borrow
+		msg -= borrow
+	}
 	return
 }
 
