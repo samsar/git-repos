@@ -285,7 +285,10 @@ func (m model) saveConfig() {
 
 // colWidths returns dynamic widths for the three resizable columns: BRANCH, SYNC,
 // and LAST MSG. Priority order when space is tight: protect BRANCH and SYNC first
-// (down to their minimums); LAST MSG shrinks first and grows last.
+// (down to their minimums); LAST MSG shrinks first and grows last. BRANCH's
+// preferred width follows the longest branch name on screen (up to branchCap),
+// so long names like "feat/otel-instrument-and-repoint" show in full when
+// there's room instead of being clipped at a fixed width.
 //
 // baseFixed accounts for every non-resizable byte in a rendered row:
 //
@@ -295,11 +298,21 @@ func (m model) colWidths() (branch, sync, msg int) {
 	const (
 		baseFixed  = 74
 		branchMin  = 22
-		branchPref = 28
+		branchCap  = 60 // upper bound so one long branch can't starve LAST MSG
 		syncMin    = 9  // "no-remote" is 9 chars
 		syncPref   = 12
 		msgMin     = 12
 	)
+
+	// branchPref tracks the longest branch name present (clamped to a sane
+	// range) so full names show when there's room, instead of a fixed cap.
+	branchPref := branchMin
+	for i := range m.repos {
+		if w := lipgloss.Width(m.repos[i].Branch); w > branchPref {
+			branchPref = w
+		}
+	}
+	branchPref = min(branchPref, branchCap)
 
 	avail := m.width - baseFixed
 
