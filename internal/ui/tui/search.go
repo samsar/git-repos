@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/samsar/git-repos/internal/git"
 )
 
@@ -80,7 +80,7 @@ func (m model) fullToFilteredIdx(fullIdx int) int {
 	return 0
 }
 
-func (m model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
 	case "esc":
@@ -98,8 +98,8 @@ func (m model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.offset = 0
 		}
 	default:
-		if len(msg.Runes) > 0 {
-			m.searchQuery += string(msg.Runes)
+		if msg.Text != "" {
+			m.searchQuery += msg.Text
 			m.cursor = 0
 			m.offset = 0
 		}

@@ -2,12 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/git"
 )
 
@@ -85,7 +87,14 @@ var helpCols = []colDesc{
 
 // ── Top-level dispatch ────────────────────────────────────────────────────────
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	v := tea.NewView(m.render())
+	v.AltScreen = true
+	return v
+}
+
+// render draws the whole app as a string.
+func (m model) render() string {
 	if m.width == 0 {
 		return ""
 	}
@@ -278,7 +287,7 @@ func (m model) viewHelp() string {
 	}
 
 	// ── Status icons section — single column ──────────────────────────────────
-	iconFgs := []lipgloss.Color{attentionFg, pushFg, okFg, staleFg}
+	iconFgs := []color.Color{attentionFg, pushFg, okFg, staleFg}
 	renderIconEntry := func(idx int) string {
 		ic := helpIcons[idx]
 		styled := lipgloss.NewStyle().Background(bg).Foreground(iconFgs[idx]).Bold(true).Render(ic.icon)
@@ -1180,7 +1189,7 @@ func (m model) sep() string {
 
 // spinnerOn renders the spinner frame over bg. The spinner's own style only
 // sets a foreground, so without this the frame sits on the terminal background.
-func (m model) spinnerOn(bg lipgloss.Color) string {
+func (m model) spinnerOn(bg color.Color) string {
 	s := m.spinner
 	s.Style = s.Style.Background(bg)
 	return s.View()
