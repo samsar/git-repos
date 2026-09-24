@@ -79,7 +79,7 @@ git repos config reset
 
 ## Requirements
 
-- Go 1.21+ (only if building from source)
+- Go 1.27+ (only if building from source)
 - `git` on your PATH
 - [`gh`](https://cli.github.com/) on your PATH and authenticated — only needed for PR lookup, everything else works without it
 
