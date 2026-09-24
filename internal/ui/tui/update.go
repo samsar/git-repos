@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/version"
 )
@@ -372,6 +373,7 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		m.behindLoaded = false
 		m.behindCommits = nil
 		m.detailVP = viewport.New(m.width, m.detailVPHeight())
+		m.detailVP.Style = lipgloss.NewStyle().Background(rowBg)
 		m.detailVP.SetContent(m.renderDetailContent())
 		cmds := []tea.Cmd{loadCommitsCmd(m.repos[m.cursor].Path)}
 		if m.repos[m.cursor].Behind > 0 {
@@ -579,15 +581,11 @@ func (m model) handleSettingsKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// headerHeight returns the number of lines the header occupies.
-// Rows 0..len(logoLines)-1 hold the logo (and the info / shortcut columns),
-// plus one row for the version below the logo, and the last row holds the legend.
+// headerHeight returns the number of lines the header occupies: one per logo
+// line. The version sits beside the last logo line, and the legend shares that
+// row too.
 func (m model) headerHeight() int {
-	h := len(logoLines)
-	if m.version != "" {
-		h++
-	}
-	return h
+	return len(logoLines)
 }
 
 func (m model) visibleRows() int {
@@ -600,9 +598,9 @@ func (m model) visibleRows() int {
 }
 
 // detailVPHeight returns the viewport height for the detail view.
-// overhead: header + sep + trailing \n + bottom sep + status bar
+// overhead: header + sep + bottom sep + status bar
 func (m model) detailVPHeight() int {
-	v := m.height - m.headerHeight() - 4
+	v := m.height - m.headerHeight() - 3
 	if v < 1 {
 		return 1
 	}

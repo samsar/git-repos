@@ -125,17 +125,15 @@ func (m model) viewScanning() string {
 		b.WriteString(fillBg("", m.width) + "\n")
 	}
 
-	var msg string
+	msg := "Scanning repos…"
 	if m.scanTotal > 0 {
-		msg = fmt.Sprintf("  %s  Scanning repos… (%d / %d)", m.spinner.View(), m.scanDone, m.scanTotal)
-	} else {
-		msg = fmt.Sprintf("  %s  Scanning repos…", m.spinner.View())
+		msg = fmt.Sprintf("Scanning repos… (%d / %d)", m.scanDone, m.scanTotal)
 	}
 
 	style := lipgloss.NewStyle().
 		Background(colorStatusBarBg).
 		Foreground(staleFg)
-	b.WriteString(style.Width(m.width).Render(msg))
+	b.WriteString(style.Width(m.width).Render(style.Render("  ") + m.spinnerOn(colorStatusBarBg) + style.Render("  "+msg)))
 	return b.String()
 }
 
@@ -379,7 +377,7 @@ func (m model) openPRSummary() string {
 		return hdrPurpleStyle.Render("  PRs: ") + hdrDimStyle.Render("install gh CLI and authenticate")
 	}
 	if m.prsLoading {
-		return hdrPurpleStyle.Render("  PRs: ") + hdrDimStyle.Render(m.spinner.View()+" loading…")
+		return hdrPurpleStyle.Render("  PRs: ") + m.spinnerOn(headerBg) + hdrDimStyle.Render(" loading…")
 	}
 	if !m.prsEverLoaded {
 		return hdrPurpleStyle.Render("  PRs: ") + hdrDimStyle.Render("…")
@@ -648,7 +646,7 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	for i := 0; i < totalRows; i++ {
 		if i == legendIdx {
 			legend := m.legendContent()
-			row := fill.Width(leftW + midW).MaxWidth(leftW + midW).Render(legend)
+			row := fill.Inline(true).Width(leftW + midW).MaxWidth(leftW + midW).Render(legend)
 			row += renderLogoCell(i)
 			b.WriteString(row + "\n")
 			continue
@@ -663,7 +661,9 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 			mid = strings.Repeat(" ", midLeftPad) + midLines[i]
 		}
 
-		row := fill.Width(leftW).MaxWidth(leftW).Render(left) + fill.Width(midW).MaxWidth(midW).Render(mid) + renderLogoCell(i)
+		// Inline truncates at MaxWidth rather than wrapping onto an extra row.
+		cell := fill.Inline(true)
+		row := cell.Width(leftW).MaxWidth(leftW).Render(left) + cell.Width(midW).MaxWidth(midW).Render(mid) + renderLogoCell(i)
 		b.WriteString(row + "\n")
 	}
 
@@ -690,22 +690,29 @@ func (m model) renderStatusBar() string {
 		return style.Width(m.width).Render(content)
 	}
 
-	var content string
+	var msg string
+	busy := true
 	switch {
 	case m.refreshing:
+		msg = "Refreshing…"
 		if m.scanTotal > 0 {
-			content = fmt.Sprintf("  %s  Refreshing… (%d / %d)", m.spinner.View(), m.scanDone, m.scanTotal)
-		} else {
-			content = fmt.Sprintf("  %s  Refreshing…", m.spinner.View())
+			msg = fmt.Sprintf("Refreshing… (%d / %d)", m.scanDone, m.scanTotal)
 		}
 	case m.prsLoading:
-		content = fmt.Sprintf("  %s  Loading PRs…", m.spinner.View())
+		msg = "Loading PRs…"
 	case m.fetchingPR:
-		content = fmt.Sprintf("  %s  %s", m.spinner.View(), m.statusMsg)
-	case m.statusMsg != "":
-		content = "  " + m.statusMsg
+		msg = m.statusMsg
+	default:
+		msg, busy = m.statusMsg, false
 	}
 
+	content := style.Render("  ")
+	if busy {
+		content += m.spinnerOn(colorStatusBarBg) + style.Render("  ")
+	}
+	if msg != "" {
+		content += style.Render(msg)
+	}
 	return style.Width(m.width).Render(content)
 }
 
@@ -832,21 +839,34 @@ func (m model) renderDetailContent() string {
 	}
 	r := m.repos[m.cursor]
 
+	fill := lipgloss.NewStyle().Background(rowBg)
+	urlStyle := lipgloss.NewStyle().Background(rowBg).Foreground(colorLightGray)
+
+	// line pads s to the full width so the background reaches the right edge.
+	line := func(s string) string {
+		return s + fill.Render(strings.Repeat(" ", max(0, m.width-lipgloss.Width(s)))) + "\n"
+	}
+	blank := line("")
+
 	const labelColW = 14
 	field := func(k, v string) string {
 		kStr := boldStyle.Render(k)
 		// use visual width (not byte length) so ANSI codes don't break alignment
 		pad := strings.Repeat(" ", max(0, labelColW-lipgloss.Width(kStr)))
-		return "  " + kStr + pad + "  " + v + "\n"
+		return line(fill.Render("  ") + kStr + fill.Render(pad+"  ") + v)
 	}
-
-	urlStyle := lipgloss.NewStyle().Foreground(colorLightGray)
+	heading := func(title string) string {
+		return blank +
+			line(boldStyle.Render("  "+title)) +
+			line(textStyle.Render("  "+strings.Repeat("─", max(0, m.width-4))))
+	}
+	loading := line(fill.Render("  ") + m.spinnerOn(rowBg) + textStyle.Render("  loading…"))
 
 	var b strings.Builder
-	b.WriteString("\n")
+	b.WriteString(blank)
 	b.WriteString(field("Path", urlStyle.Render(r.Path)))
-	b.WriteString("\n")
-	b.WriteString(field("Branch", r.Branch))
+	b.WriteString(blank)
+	b.WriteString(field("Branch", textStyle.Render(r.Branch)))
 
 	// Show all remotes so forks display both origin and upstream.
 	for i, rem := range r.Remotes {
@@ -854,7 +874,7 @@ func (m model) renderDetailContent() string {
 		if i == 0 {
 			label = "Remotes"
 		}
-		b.WriteString(field(label, cyanStyle.Render(rem.Name)+"  "+urlStyle.Render(rem.URL)))
+		b.WriteString(field(label, cyanStyle.Render(rem.Name)+fill.Render("  ")+urlStyle.Render(rem.URL)))
 	}
 
 	if r.NoUpstream {
@@ -870,72 +890,61 @@ func (m model) renderDetailContent() string {
 		if len(parts) == 0 {
 			parts = append(parts, okStyle.Render("✓ in sync"))
 		}
-		b.WriteString(field("Upstream", strings.Join(parts, "  ")))
+		b.WriteString(field("Upstream", strings.Join(parts, fill.Render("  "))))
 	}
 
 	b.WriteString(field("Changes", detailChanges(r)))
 	if len(r.StagedFiles) > 0 {
-		b.WriteString("\n")
-		b.WriteString(boldStyle.Render("  Staged changes") + "\n")
-		b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
+		b.WriteString(heading("Staged changes"))
 		for _, f := range r.StagedFiles {
-			b.WriteString(attentionStyle.Render("  "+f) + "\n")
+			b.WriteString(line(attentionStyle.Render("  " + f)))
 		}
 	}
 	if len(r.ModifiedFiles) > 0 {
-		b.WriteString("\n")
-		b.WriteString(boldStyle.Render("  Modified files") + "\n")
-		b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
+		b.WriteString(heading("Modified files"))
 		for _, f := range r.ModifiedFiles {
-			b.WriteString(attentionStyle.Render("  "+f) + "\n")
+			b.WriteString(line(attentionStyle.Render("  " + f)))
 		}
 	}
 	if len(r.UntrackedFiles) > 0 {
-		b.WriteString("\n")
-		b.WriteString(boldStyle.Render("  Untracked files") + "\n")
-		b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
+		b.WriteString(heading("Untracked files"))
 		for _, f := range r.UntrackedFiles {
-			b.WriteString(pushStyle.Render("  "+f) + "\n")
+			b.WriteString(line(pushStyle.Render("  " + f)))
 		}
 	}
 	if r.StashCount > 0 {
-		b.WriteString(field("Stash", fmt.Sprintf("%d changeset(s)", r.StashCount)))
+		b.WriteString(field("Stash", textStyle.Render(fmt.Sprintf("%d changeset(s)", r.StashCount))))
 	}
-	b.WriteString(field("Last commit", r.LastRel))
+	b.WriteString(field("Last commit", textStyle.Render(r.LastRel)))
 
 	if r.PRNumber > 0 {
-		b.WriteString("\n")
+		b.WriteString(blank)
 		b.WriteString(field("PR", cyanStyle.Render(fmt.Sprintf("#%d  open", r.PRNumber))))
-		b.WriteString(field("", lipgloss.NewStyle().Foreground(colorLightGray).Render(r.PRUrl)))
+		b.WriteString(field("", urlStyle.Render(r.PRUrl)))
 	}
 
 	// ── Commits behind ────────────────────────────────────────────────────────
 	if r.Behind > 0 {
-		b.WriteString("\n")
-		b.WriteString(boldStyle.Render("  Commits behind") + "\n")
-		b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
+		b.WriteString(heading("Commits behind"))
 		if !m.behindLoaded {
-			b.WriteString("  " + m.spinner.View() + "  loading…\n")
+			b.WriteString(loading)
 		} else if len(m.behindCommits) == 0 {
-			b.WriteString(dimStyle.Render("  (none)") + "\n")
+			b.WriteString(line(dimStyle.Render("  (none)")))
 		} else {
 			for _, c := range m.behindCommits {
-				b.WriteString(attentionStyle.Render("  "+c) + "\n")
+				b.WriteString(line(attentionStyle.Render("  " + c)))
 			}
 		}
 	}
 
-	b.WriteString("\n")
-	b.WriteString(boldStyle.Render("  Recent commits") + "\n")
-	b.WriteString("  " + strings.Repeat("─", max(0, m.width-4)) + "\n")
-
+	b.WriteString(heading("Recent commits"))
 	if !m.commitsLoaded {
-		b.WriteString("  " + m.spinner.View() + "  loading…\n")
+		b.WriteString(loading)
 	} else if len(m.detailCommits) == 0 {
-		b.WriteString(dimStyle.Render("  (no commits)") + "\n")
+		b.WriteString(line(dimStyle.Render("  (no commits)")))
 	} else {
 		for _, c := range m.detailCommits {
-			b.WriteString(textStyle.Render("  "+c) + "\n")
+			b.WriteString(line(textStyle.Render("  " + c)))
 		}
 	}
 	return b.String()
@@ -967,7 +976,7 @@ func (m model) viewConfirmDelete() string {
 		greyS.Render("  This permanently deletes the directory and all its contents."),
 		greyS.Render("  This action cannot be undone."),
 		"",
-		"  " + cyanS.Render("<y>") + greyS.Render("  Confirm") + "     " + cyanS.Render("<Esc>") + greyS.Render("  Cancel"),
+		greyS.Render("  ") + cyanS.Render("<y>") + greyS.Render("  Confirm     ") + cyanS.Render("<Esc>") + greyS.Render("  Cancel"),
 		"",
 	}
 	for _, line := range lines {
@@ -1126,6 +1135,14 @@ func (m model) sep() string {
 	return sepStyle.Render(strings.Repeat("─", m.width)) + "\n"
 }
 
+// spinnerOn renders the spinner frame over bg. The spinner's own style only
+// sets a foreground, so without this the frame sits on the terminal background.
+func (m model) spinnerOn(bg lipgloss.Color) string {
+	s := m.spinner
+	s.Style = s.Style.Background(bg)
+	return s.View()
+}
+
 // fillBg renders s padded to width with the row background colour.
 func fillBg(s string, width int) string {
 	return lipgloss.NewStyle().Background(rowBg).Foreground(colorText).Width(width).Render(s)
@@ -1160,7 +1177,7 @@ func detailChanges(r git.RepoInfo) string {
 	if r.Untracked > 0 {
 		parts = append(parts, pushStyle.Render(fmt.Sprintf("?:%d untracked", r.Untracked)))
 	}
-	return strings.Join(parts, "  ")
+	return strings.Join(parts, lipgloss.NewStyle().Background(rowBg).Render("  "))
 }
 
 func trunc(s string, n int) string {
