@@ -3,10 +3,10 @@ package tui
 import (
 	"strconv"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/version"
 )
@@ -18,13 +18,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Lay out inside the border that View draws around the whole app.
 		m.width, m.height = max(0, msg.Width-2), max(0, msg.Height-2)
 		if m.state == stateDetail {
-			m.detailVP.Width = m.width
-			m.detailVP.Height = m.detailVPHeight()
+			m.detailVP.SetWidth(m.width)
+			m.detailVP.SetHeight(m.detailVPHeight())
 			m.detailVP.SetContent(m.renderDetailContent())
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
 	case spinner.TickMsg:
@@ -252,7 +252,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	// ctrl+c always quits, even in search mode
@@ -373,7 +373,7 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		m.detailCommits = nil
 		m.behindLoaded = false
 		m.behindCommits = nil
-		m.detailVP = viewport.New(m.width, m.detailVPHeight())
+		m.detailVP = viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(m.detailVPHeight()))
 		m.detailVP.Style = lipgloss.NewStyle().Background(rowBg)
 		m.detailVP.SetContent(m.renderDetailContent())
 		cmds := []tea.Cmd{loadCommitsCmd(m.repos[m.cursor].Path)}
@@ -557,7 +557,7 @@ func (m model) handleSettingsKey(key string) (tea.Model, tea.Cmd) {
 		if m.settingsCursor > 0 {
 			m.settingsCursor--
 		}
-	case " ", "enter":
+	case "space", "enter":
 		switch m.settingsCursor {
 		case 0: // auto_refresh_mins — start editing
 			m.settingsEditing = true

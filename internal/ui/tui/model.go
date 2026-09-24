@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/version"
@@ -56,25 +56,25 @@ type versionCheckMsg struct{ latest string }
 // All colours are explicit 256-colour values so the TUI looks correct
 // regardless of the terminal's own background colour.
 
-const (
-	colorCyan        lipgloss.Color = "51"  // #00ffff - cyan, accent / interactive elements
-	colorPurple      lipgloss.Color = "135" // #af5fff - medium orchid, header labels and logo
-	colorNearBlack   lipgloss.Color = "232" // #080808 - near black, text on coloured row backgrounds
-	colorText        lipgloss.Color = "252" // #d0d0d0 - light silver, primary foreground
-	colorBrightWhite lipgloss.Color = "15"  // #ffffff - white
-	colorStatusBarBg lipgloss.Color = "233" // #121212 - very dark grey, status bar background
-	colorDarkGray    lipgloss.Color = "237" // #3a3a3a - dark grey, separators
-	colorDimGray     lipgloss.Color = "244" // #808080 - dim grey, selected-stale row background
-	colorFaintGray   lipgloss.Color = "245" // #8a8a8a - faint grey, legend text
-	colorSubduedGray lipgloss.Color = "246" // #949494 - subdued grey, column headers and help descriptions
-	colorLightGray   lipgloss.Color = "248" // #a8a8a8 - light grey, URLs and paths
+var (
+	colorCyan        = lipgloss.Color("51")  // #00ffff - cyan, accent / interactive elements
+	colorPurple      = lipgloss.Color("135") // #af5fff - medium orchid, header labels and logo
+	colorNearBlack   = lipgloss.Color("232") // #080808 - near black, text on coloured row backgrounds
+	colorText        = lipgloss.Color("252") // #d0d0d0 - light silver, primary foreground
+	colorBrightWhite = lipgloss.Color("15")  // #ffffff - white
+	colorStatusBarBg = lipgloss.Color("233") // #121212 - very dark grey, status bar background
+	colorDarkGray    = lipgloss.Color("237") // #3a3a3a - dark grey, separators
+	colorDimGray     = lipgloss.Color("244") // #808080 - dim grey, selected-stale row background
+	colorFaintGray   = lipgloss.Color("245") // #8a8a8a - faint grey, legend text
+	colorSubduedGray = lipgloss.Color("246") // #949494 - subdued grey, column headers and help descriptions
+	colorLightGray   = lipgloss.Color("248") // #a8a8a8 - light grey, URLs and paths
 )
 
 var (
 	// All views share a uniform near-black background. The status bar overrides
 	// this with its own darker grey at the bottom of the screen.
-	headerBg lipgloss.Color = "232"
-	rowBg                   = headerBg
+	headerBg = lipgloss.Color("232")
+	rowBg    = headerBg
 
 	// Status colours — applied as foreground to the entire row
 	attentionFg = lipgloss.Color("203") // soft coral
@@ -522,7 +522,7 @@ func openBrowser(url string) {
 // Run starts the full-screen TUI program.
 func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) error {
 	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins, bootFetch, configPath, version)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
 }

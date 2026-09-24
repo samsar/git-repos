@@ -6,17 +6,14 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/git"
 )
 
 // Every view must fill the whole terminal inside a border, and give every cell
 // an explicit background, otherwise the terminal's own background shows through.
 func TestViewsFillTerminal(t *testing.T) {
-	useANSI256(t)
-
 	dirty := repo("catio-harness", "fix/drain-handoff", "fix(core): make the drain park non-reentrant")
 	dirty.Behind = 1
 	dirty.Staged, dirty.StagedFiles = 1, []string{"cmd/root.go"}
@@ -41,7 +38,7 @@ func TestViewsFillTerminal(t *testing.T) {
 	detail := func(cursor int, loaded bool) model {
 		m := base()
 		m.cursor = cursor
-		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 		m = next.(model)
 		if loaded {
 			m.commitsLoaded, m.detailCommits = true, []string{
@@ -101,7 +98,7 @@ func TestViewsFillTerminal(t *testing.T) {
 			m := build()
 			// The border takes one row / column on each side of the content area.
 			termW, termH := m.width+2, m.height+2
-			rows := strings.Split(m.View(), "\n")
+			rows := strings.Split(m.View().Content, "\n")
 			if len(rows) != termH {
 				t.Errorf("rendered %d rows, want %d (the terminal height)", len(rows), termH)
 			}
@@ -147,13 +144,12 @@ func checkFrame(t *testing.T, rows []string) {
 // The version beside the logo keeps a margin from the border rather than
 // running straight into it.
 func TestVersionPaddedFromBorder(t *testing.T) {
-	useANSI256(t)
 	for _, version := range []string{"v1.1.8", "v1.10.12"} {
 		for _, update := range []bool{false, true} {
 			m := resize(model{state: stateList, spinner: newSpinner(), version: version, updateAvailable: update}, 120, 40)
 			label := m.versionLabel()
 			found := false
-			for _, row := range strings.Split(plain(m.View()), "\n") {
+			for _, row := range strings.Split(plain(m.View().Content), "\n") {
 				if !strings.Contains(row, label) {
 					continue
 				}
@@ -167,13 +163,6 @@ func TestVersionPaddedFromBorder(t *testing.T) {
 			}
 		}
 	}
-}
-
-// useANSI256 renders colours for the rest of the test, as in a real terminal.
-func useANSI256(t *testing.T) {
-	prev := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.ANSI256)
-	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
 }
 
 // resize sends the model a w×h terminal size, as a terminal resize would.
