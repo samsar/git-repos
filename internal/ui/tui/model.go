@@ -128,10 +128,10 @@ var (
 
 	// Misc
 	sepStyle  = lipgloss.NewStyle().Foreground(colorDarkGray).Background(headerBg)
-	boldStyle = lipgloss.NewStyle().Bold(true).Foreground(colorText)
-	textStyle = lipgloss.NewStyle().Foreground(colorText)
-	dimStyle  = lipgloss.NewStyle().Foreground(staleFg)
-	cyanStyle = lipgloss.NewStyle().Foreground(colorCyan)
+	boldStyle = lipgloss.NewStyle().Bold(true).Foreground(colorText).Background(rowBg)
+	textStyle = lipgloss.NewStyle().Foreground(colorText).Background(rowBg)
+	dimStyle  = lipgloss.NewStyle().Foreground(staleFg).Background(rowBg)
+	cyanStyle = lipgloss.NewStyle().Foreground(colorCyan).Background(rowBg)
 )
 
 // ── Column widths ─────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ type model struct {
 	// list navigation
 	cursor int
 	offset int
-	width  int
+	width  int // content area, inside the border (terminal size minus 2)
 	height int
 
 	// sorting
@@ -218,15 +218,12 @@ type model struct {
 }
 
 func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) model {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(colorCyan)
 	return model{
 		scanDirs:        dirs,
 		doFetch:         doFetch,
 		noPRs:           noPRs,
 		state:           stateScanning,
-		spinner:         s,
+		spinner:         newSpinner(),
 		sortCol:         git.SortStatus,
 		hidden:          hidden,
 		autoRefreshMins: autoRefreshMins,
@@ -236,6 +233,13 @@ func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefresh
 		gitVersion:      detectCLIVersion("git", "--version"),
 		ghVersion:       detectCLIVersion("gh", "--version"),
 	}
+}
+
+func newSpinner() spinner.Model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(colorCyan)
+	return s
 }
 
 func normalizeVersion(v string) string {
