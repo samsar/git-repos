@@ -15,7 +15,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
+		// Lay out inside the border that View draws around the whole app.
+		m.width, m.height = max(0, msg.Width-2), max(0, msg.Height-2)
 		if m.state == stateDetail {
 			m.detailVP.Width = m.width
 			m.detailVP.Height = m.detailVPHeight()

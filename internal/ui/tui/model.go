@@ -173,7 +173,7 @@ type model struct {
 	// list navigation
 	cursor int
 	offset int
-	width  int
+	width  int // content area, inside the border (terminal size minus 2)
 	height int
 
 	// sorting

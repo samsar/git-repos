@@ -6,19 +6,16 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 	"github.com/samsar/git-repos/internal/git"
 )
 
-// Every view must fill the whole terminal and give every cell an explicit
-// background, otherwise the terminal's own background shows through.
-func TestViewsPaintEveryCell(t *testing.T) {
-	prev := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.ANSI256)
-	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+// Every view must fill the whole terminal inside a border, and give every cell
+// an explicit background, otherwise the terminal's own background shows through.
+func TestViewsFillTerminal(t *testing.T) {
+	useANSI256(t)
 
 	dirty := repo("catio-harness", "fix/drain-handoff", "fix(core): make the drain park non-reentrant")
 	dirty.Behind = 1
@@ -34,16 +31,12 @@ func TestViewsPaintEveryCell(t *testing.T) {
 	noUpstream.NoUpstream = true
 
 	base := func() model {
-		s := spinner.New()
-		s.Spinner = spinner.Dot
-		return model{
-			width:   120,
-			height:  40,
+		return resize(model{
 			state:   stateList,
-			spinner: s,
+			spinner: newSpinner(),
 			version: "v1.1.8",
 			repos:   []git.RepoInfo{dirty, noUpstream},
-		}
+		}, 120, 40)
 	}
 	detail := func(cursor int, loaded bool) model {
 		m := base()
@@ -96,37 +89,96 @@ func TestViewsPaintEveryCell(t *testing.T) {
 		"detail loading":          func() model { return detail(0, false) },
 		"detail loaded":           func() model { return detail(0, true) },
 		"detail no upstream":      func() model { return detail(1, true) },
-		"detail short terminal":   func() model { m := detail(0, true); m.height = 20; return resize(m) },
+		"detail short terminal":   func() model { return resize(detail(0, true), 120, 20) },
 		"help":                    func() model { m := base(); m.showHelp = true; return m },
 		"settings":                func() model { m := base(); m.state = stateSettings; return m },
-		"detail after resize":     func() model { m := detail(0, true); m.width, m.height = 150, 50; return resize(m) },
-		"list after resize small": func() model { m := base(); m.width, m.height = 130, 25; return resize(m) },
+		"detail after resize":     func() model { return resize(detail(0, true), 150, 50) },
+		"list after resize small": func() model { return resize(base(), 130, 25) },
 	}
 
 	for name, build := range cases {
 		t.Run(name, func(t *testing.T) {
 			m := build()
-			out := m.View()
-			rows := strings.Split(out, "\n")
-			if len(rows) != m.height {
-				t.Errorf("rendered %d rows, want %d (the terminal height)", len(rows), m.height)
+			// The border takes one row / column on each side of the content area.
+			termW, termH := m.width+2, m.height+2
+			rows := strings.Split(m.View(), "\n")
+			if len(rows) != termH {
+				t.Errorf("rendered %d rows, want %d (the terminal height)", len(rows), termH)
 			}
 			for i, row := range rows {
-				if w := lipgloss.Width(row); w < m.width {
-					t.Errorf("row %d is %d cells wide, want %d: %q", i, w, m.width, plain(row))
+				if w := lipgloss.Width(row); w != termW {
+					t.Errorf("row %d is %d cells wide, want %d: %q", i, w, termW, plain(row))
 				}
 				if n := unpaintedCells(row); n > 0 {
 					t.Errorf("row %d has %d cells without a background: %q", i, n, plain(row))
 				}
 			}
+			checkFrame(t, rows)
 		})
 	}
 }
 
-// resize feeds the model's current size back through Update, as a terminal
-// resize would.
-func resize(m model) model {
-	next, _ := m.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+// checkFrame asserts rows are wrapped in the rounded border, with tees where a
+// full-width separator meets it.
+func checkFrame(t *testing.T, rows []string) {
+	t.Helper()
+	for i, row := range rows {
+		r := []rune(plain(row))
+		if len(r) < 2 {
+			t.Errorf("row %d is too short to carry a border: %q", i, string(r))
+			continue
+		}
+		inner := string(r[1 : len(r)-1])
+		want := "││"
+		switch {
+		case i == 0:
+			want = "╭╮"
+		case i == len(rows)-1:
+			want = "╰╯"
+		case strings.HasPrefix(inner, "─") && strings.HasSuffix(inner, "─"):
+			want = "├┤"
+		}
+		if got := string(r[0]) + string(r[len(r)-1]); got != want {
+			t.Errorf("row %d edges = %q, want %q: %q", i, got, want, string(r))
+		}
+	}
+}
+
+// The version beside the logo keeps a margin from the border rather than
+// running straight into it.
+func TestVersionPaddedFromBorder(t *testing.T) {
+	useANSI256(t)
+	for _, version := range []string{"v1.1.8", "v1.10.12"} {
+		for _, update := range []bool{false, true} {
+			m := resize(model{state: stateList, spinner: newSpinner(), version: version, updateAvailable: update}, 120, 40)
+			label := m.versionLabel()
+			found := false
+			for _, row := range strings.Split(plain(m.View()), "\n") {
+				if !strings.Contains(row, label) {
+					continue
+				}
+				found = true
+				if !strings.HasSuffix(row, label+"  │") {
+					t.Errorf("version %q not padded from the border: %q", label, row)
+				}
+			}
+			if !found {
+				t.Errorf("version %q not rendered", label)
+			}
+		}
+	}
+}
+
+// useANSI256 renders colours for the rest of the test, as in a real terminal.
+func useANSI256(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+}
+
+// resize sends the model a w×h terminal size, as a terminal resize would.
+func resize(m model, w, h int) model {
+	next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return next.(model)
 }
 

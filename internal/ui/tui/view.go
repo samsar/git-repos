@@ -22,9 +22,6 @@ var logoLines = []string{
 	"   \\_/__/     ",
 }
 
-// logoColW is the total width reserved for the logo column (art + padding).
-const logoColW = 18
-
 // ── Help screen static data ───────────────────────────────────────────────────
 
 type helpEntry struct{ key, desc string }
@@ -92,6 +89,10 @@ func (m model) View() string {
 	if m.width == 0 {
 		return ""
 	}
+	return m.frame(m.viewContent())
+}
+
+func (m model) viewContent() string {
 	if m.showHelp {
 		return m.viewHelp()
 	}
@@ -106,6 +107,25 @@ func (m model) View() string {
 		return m.viewSettings()
 	}
 	return ""
+}
+
+// frame draws a thin border around the whole app. Full-width separator rows
+// meet the border with tees so they read as part of the frame.
+func (m model) frame(content string) string {
+	sepOpen, sepClose, _ := strings.Cut(sepStyle.Render("─"), "─")
+	horiz := strings.Repeat("─", m.width)
+
+	var b strings.Builder
+	b.WriteString(sepStyle.Render("╭"+horiz+"╮") + "\n")
+	for _, line := range strings.Split(content, "\n") {
+		l, r := "│", "│"
+		if strings.HasPrefix(line, sepOpen+"─") && strings.HasSuffix(line, "─"+sepClose) {
+			l, r = "├", "┤"
+		}
+		b.WriteString(sepStyle.Render(l) + line + sepStyle.Render(r) + "\n")
+	}
+	b.WriteString(sepStyle.Render("╰" + horiz + "╯"))
+	return b.String()
 }
 
 // ── Scanning view ─────────────────────────────────────────────────────────────
@@ -588,6 +608,7 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	logoS := lipgloss.NewStyle().Foreground(colorPurple).Background(headerBg).Bold(true)
 
 	thirdW := m.width / 3
+	logoColW := m.logoColW()
 	showLogo := m.width-thirdW*2 >= logoColW+8
 	rightW := 0
 	if showLogo {
@@ -625,19 +646,18 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 		}
 		if i == len(logoLines)-1 && m.version != "" {
 			trimmed := strings.TrimRight(logoLines[i], " ")
-			trimmedW := lipgloss.Width(trimmed)
-			vLabel := m.version
+			vLabel := m.versionLabel()
 			vs := versionS
 			if m.updateAvailable {
-				vLabel = "!" + strings.TrimPrefix(m.version, "v")
 				vs = versionUpdateS
 			}
-			vW := lipgloss.Width(vLabel)
-			gap := max(1, logoColW-2-trimmedW-vW)
-			return fill.Render("  ") + logoS.Render(trimmed) + fill.Render(strings.Repeat(" ", gap)) + vs.Render(vLabel)
+			// Right-align the version, keeping the art's two-column margin.
+			gap := max(1, logoColW-4-lipgloss.Width(trimmed)-lipgloss.Width(vLabel))
+			return fill.Render("  ") + logoS.Render(trimmed) + fill.Render(strings.Repeat(" ", gap)) + vs.Render(vLabel) + fill.Render("  ")
 		}
 		if i >= 0 && i < len(logoLines) {
-			return fill.Render("  ") + logoS.Render(logoLines[i]) + fill.Render("  ")
+			pad := max(0, logoColW-2-lipgloss.Width(logoLines[i]))
+			return fill.Render("  ") + logoS.Render(logoLines[i]) + fill.Render(strings.Repeat(" ", pad))
 		}
 		return fill.Width(rightW).Render("")
 	}
@@ -668,6 +688,29 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 	}
 
 	return b.String()
+}
+
+// versionLabel is the version shown beside the logo: "!" replaces the leading
+// "v" when an update is available.
+func (m model) versionLabel() string {
+	if m.updateAvailable {
+		return "!" + strings.TrimPrefix(m.version, "v")
+	}
+	return m.version
+}
+
+// logoColW returns the width of the logo column: the wider of the logo art and
+// its last line with the version beside it, plus a two-column margin each side.
+func (m model) logoColW() int {
+	w := 0
+	for _, l := range logoLines {
+		w = max(w, lipgloss.Width(l))
+	}
+	if m.version != "" {
+		last := strings.TrimRight(logoLines[len(logoLines)-1], " ")
+		w = max(w, lipgloss.Width(last)+1+lipgloss.Width(m.versionLabel()))
+	}
+	return 2 + w + 2
 }
 
 // renderStatusBar renders the bottom status line showing async operation state
