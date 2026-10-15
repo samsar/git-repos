@@ -40,7 +40,13 @@ type scanStartedMsg struct {
 }
 type repoScannedMsg git.ScanResult
 type scanDoneMsg struct{}
-type prsLoadedMsg []git.RepoInfo
+// prsLoadedMsg is the repos with their PRs matched, and the PRs: yours
+// and those asking for your review; or why they couldn't be looked up.
+type prsLoadedMsg struct {
+	repos []git.RepoInfo
+	prs   git.PRs
+	err   error
+}
 type singleRepoPRLoadedMsg git.RepoInfo
 type commitsLoadedMsg []string
 type behindCommitsLoadedMsg []string
@@ -193,6 +199,8 @@ type model struct {
 	resultCh      <-chan git.ScanResult
 	prsLoading    bool
 	prsEverLoaded bool
+	prs           git.PRs // yours and those asking for your review, as last looked up
+	prsErr        error   // why the last lookup failed, if it did
 	fetchingPR    bool
 	refreshing    bool
 	refreshRepos  []git.RepoInfo
@@ -459,8 +467,8 @@ func loadPRsCmd(repos []git.RepoInfo) tea.Cmd {
 	return func() tea.Msg {
 		cp := make([]git.RepoInfo, len(repos))
 		copy(cp, repos)
-		git.FetchAndMatchPRs(cp)
-		return prsLoadedMsg(cp)
+		prs, err := git.FetchAndMatchPRs(cp)
+		return prsLoadedMsg{repos: cp, prs: prs, err: err}
 	}
 }
 

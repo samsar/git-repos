@@ -89,9 +89,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prsLoadedMsg:
-		m.repos = []git.RepoInfo(msg)
+		m.repos = msg.repos
 		m.prsLoading = false
 		m.prsEverLoaded = true
+		m.prsErr = msg.err
+		if msg.err == nil {
+			m.prs = msg.prs
+		}
 		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
 		if m.state == stateDetail {
 			m.detailVP.SetContent(m.renderDetailContent())
