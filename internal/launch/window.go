@@ -252,11 +252,23 @@ func handOff(h Handoff) (string, error) {
 	if err := os.MkdirAll(handoffDir(), 0o700); err != nil {
 		return "", err
 	}
+	sweepHandoffs()
 	data, err := json.Marshal(h)
 	if err != nil {
 		return "", err
 	}
 	return token, os.WriteFile(handoffPath(token), data, 0o600)
+}
+
+// sweepHandoffs removes handoffs no window took in time, as when a
+// terminal app opened no window: they would wait there for ever.
+func sweepHandoffs() {
+	entries, _ := os.ReadDir(handoffDir())
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > handoffTTL {
+			_ = os.Remove(filepath.Join(handoffDir(), e.Name()))
+		}
+	}
 }
 
 // TakeHandoff reads and removes the handoff token names: an error for a

@@ -121,7 +121,9 @@ func TestSaveSettingsKeepsKeys(t *testing.T) {
 	m := helpOn(t, yours(t, nil), keys.Search)
 	m = press(press(m, "r"), "F")
 	m.bootFetch = true
-	m.saveConfig()
+	if err := m.saveConfig(); err != nil {
+		t.Fatal(err)
+	}
 	cfg, _ := config.Load()
 	if !cfg.BootFetch || !slices.Equal(cfg.Keys[keys.Search], config.KeyList{"F"}) {
 		t.Errorf("saved %+v", cfg)

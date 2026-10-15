@@ -93,11 +93,14 @@ func LoadFrom(path string) (*Config, error) {
 	}
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return &cfg, nil
 }
 
+// Save writes cfg to the config file whole, or not at all: to a file
+// beside it, then renamed over it, so a write cut short never leaves a
+// config git-repos can't read.
 func Save(cfg *Config) error {
 	path := Path()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -107,7 +110,23 @@ func Save(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // gone once renamed; else left by a failure
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // PromptSetup asks which directory to scan and saves it into existing,

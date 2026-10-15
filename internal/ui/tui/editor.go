@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -14,6 +15,10 @@ import (
 	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/launch"
 )
+
+// openTimeout bounds opening a terminal window: a terminal app or tmux
+// that doesn't answer leaves git-repos saying so, not waiting.
+const openTimeout = 15 * time.Second
 
 // editorOpenedMsg is how opening a repo in an editor went: what the
 // status bar says of it.
@@ -88,7 +93,9 @@ func (m model) openIn(e launch.Editor, r git.RepoInfo) (tea.Model, tea.Cmd) {
 		opener := m.opener
 		m.statusMsg = fmt.Sprintf("opening %s in %s…", r.Name, e.Name)
 		return m, func() tea.Msg {
-			err := opener.Open(context.Background(), e, r.Path)
+			ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
+			defer cancel()
+			err := opener.Open(ctx, e, r.Path)
 			return editorOpenedMsg{text: fmt.Sprintf("opened %s in %s, in a new %s window", r.Name, e.Name, opener.Name), err: err}
 		}
 	}

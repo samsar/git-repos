@@ -105,6 +105,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		KeyProblems:     keyProblems,
 		Editors:         launch.Available(cfg.Editors, exec.LookPath),
 		DefaultEditor:   cfg.DefaultEditor,
+		EditorProblems:  launch.Check(cfg.Editors),
 		Opener:          opener,
 		OpenerOK:        openerOK,
 	})

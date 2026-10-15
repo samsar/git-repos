@@ -266,6 +266,9 @@ type Options struct {
 	// DefaultEditor the one e opens, by name; "" for launch.Pick's choice.
 	Editors       []launch.Editor
 	DefaultEditor string
+	// EditorProblems are config.json's editors' problems, which leave
+	// them out.
+	EditorProblems []string
 	// Opener opens terminal windows, when OpenerOK.
 	Opener   launch.Opener
 	OpenerOK bool
@@ -275,6 +278,8 @@ func New(o Options) model {
 	statusMsg := ""
 	if n := len(o.KeyProblems); n > 0 {
 		statusMsg = fmt.Sprintf("config.json's keys have %d problem(s), so the default keys are in use: run git repos keys check", n)
+	} else if len(o.EditorProblems) > 0 {
+		statusMsg = "config.json's editors are left out: " + o.EditorProblems[0] + " (git repos editors lists them)"
 	}
 	return model{
 		keys:            keymap{bindings: o.Bindings},
@@ -339,10 +344,10 @@ func detectCLIVersion(name string, args ...string) string {
 // saveConfig persists the settings the TUI changes to disk, keeping
 // everything else config.json says (your keys, and dirs given as
 // arguments rather than from the file).
-func (m model) saveConfig() {
+func (m model) saveConfig() error {
 	cfg, err := config.Load()
 	if err != nil {
-		return
+		return err
 	}
 	if cfg == nil {
 		cfg = &config.Config{}
@@ -350,7 +355,7 @@ func (m model) saveConfig() {
 	cfg.AutoRefreshMins = m.autoRefreshMins
 	cfg.BootFetch = m.bootFetch
 	cfg.DefaultEditor = m.defaultEditor
-	_ = config.Save(cfg)
+	return config.Save(cfg)
 }
 
 // colWidths returns dynamic widths for the three resizable columns: BRANCH, SYNC,

@@ -183,3 +183,20 @@ func TestHandoff(t *testing.T) {
 		t.Error("an old handoff is left behind")
 	}
 }
+
+// A handoff no window took in time is swept away by the next.
+func TestSweepHandoffs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", home)
+	stale, _ := handOff(Handoff{Dir: "/r"})
+	past := time.Now().Add(-2 * handoffTTL)
+	_ = os.Chtimes(handoffPath(stale), past, past)
+	fresh, _ := handOff(Handoff{Dir: "/r"})
+	if _, err := os.Stat(handoffPath(stale)); !os.IsNotExist(err) {
+		t.Error("a stale handoff is left behind")
+	}
+	if _, err := os.Stat(handoffPath(fresh)); err != nil {
+		t.Errorf("the fresh handoff: %v", err)
+	}
+}

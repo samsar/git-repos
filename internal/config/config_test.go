@@ -2,7 +2,10 @@ package config
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -29,5 +32,33 @@ func TestKeyList(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`{"keys":{"search":3}}`), &cfg); err == nil {
 		t.Error("a number taken as keys")
+	}
+}
+
+// Save writes the config whole, leaving nothing beside it, and Load reads
+// it back; a config it can't read names the file.
+func TestSaveAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	want := &Config{Dirs: []string{"/r"}, BootFetch: true, Keys: map[string]KeyList{"search": {"F"}}}
+	if err := Save(want); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(want); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, "git-repos"))
+	if len(entries) != 1 || entries[0].Name() != "config.json" {
+		t.Errorf("left beside the config: %v", entries)
+	}
+	got, err := Load()
+	if err != nil || !got.BootFetch || !slices.Equal(got.Keys["search"], KeyList{"F"}) {
+		t.Errorf("loaded %+v, %v", got, err)
+	}
+	if err := os.WriteFile(Path(), []byte(`{"keys":{"search":3}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err == nil || !strings.HasPrefix(err.Error(), Path()+": ") {
+		t.Errorf("err %v doesn't name the file", err)
 	}
 }

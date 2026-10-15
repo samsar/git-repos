@@ -48,7 +48,7 @@ and esc always goes back. git repos keys check checks a file.`,
 		path := config.Path()
 		cfg, err := config.LoadFrom(path)
 		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+			return err
 		}
 		bindings, problems := keys.FromConfig(cfg.KeyMap())
 		out := cmd.OutOrStdout()
@@ -92,7 +92,7 @@ esc always goes back), and a key bound twice in one view. It exits 1 on any.`,
 		cfg, err := config.LoadFrom(path)
 		switch {
 		case err != nil:
-			fmt.Fprintf(out, "%s: %v\n", path, err)
+			fmt.Fprintln(out, err)
 			return errProblems
 		case cfg == nil && given:
 			fmt.Fprintf(out, "there is no %s\n", path)

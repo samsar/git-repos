@@ -626,7 +626,9 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 		}
 	case keys.Back:
 		m.state = stateList
-		m.saveConfig()
+		if err := m.saveConfig(); err != nil {
+			m.statusMsg = "couldn't save settings: " + err.Error()
+		}
 		var cmds []tea.Cmd
 		if m.autoRefreshMins > 0 {
 			cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
