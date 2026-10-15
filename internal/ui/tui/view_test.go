@@ -253,3 +253,19 @@ func plain(s string) string {
 	}
 	return b.String()
 }
+
+func TestWindowTitle(t *testing.T) {
+	m := resize(model{
+		state:   stateList,
+		spinner: newSpinner(),
+		repos:   []git.RepoInfo{repo("my-api", "main", "init")},
+	}, 120, 40)
+	if got := m.View().WindowTitle; got != "git-repos" {
+		t.Errorf("list title = %q, want %q", got, "git-repos")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := next.(model).View().WindowTitle; got != "git-repos: my-api" {
+		t.Errorf("detail title = %q, want %q", got, "git-repos: my-api")
+	}
+}

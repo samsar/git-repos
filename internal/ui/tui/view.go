@@ -90,7 +90,17 @@ var helpCols = []colDesc{
 func (m model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
+	v.WindowTitle = m.windowTitle()
 	return v
+}
+
+// windowTitle names the app in the terminal's title bar or tab, plus the repo
+// being inspected in the detail view. Bubble Tea clears it again on exit.
+func (m model) windowTitle() string {
+	if m.state == stateDetail && m.cursor < len(m.repos) {
+		return "git-repos: " + m.repos[m.cursor].Name
+	}
+	return "git-repos"
 }
 
 // render draws the whole app as a string.
