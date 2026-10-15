@@ -1,6 +1,6 @@
 // Package launch opens a repo in an editor, an agent or a terminal: as a
 // GUI app beside git-repos, here in its terminal while git-repos waits, or
-// in a new terminal window.
+// in a new terminal tab or window.
 package launch
 
 import (
@@ -22,8 +22,11 @@ const (
 	// waiting until it exits: for vim and the like.
 	Inline Mode = "inline"
 	// Window runs the editor in a new terminal window, in the repo,
-	// leaving a shell there once it exits: for claude, codex, or a shell.
+	// leaving a shell there once it exits: for a shell.
 	Window Mode = "window"
+	// Tab is Window in a new tab of the window git-repos runs in, where
+	// the terminal can open one: for claude, codex and other agents.
+	Tab Mode = "tab"
 )
 
 // Editor is one way to open a repo: config.json's editors, or a preset.
@@ -43,6 +46,9 @@ func (e Editor) How() Mode {
 	return e.Mode
 }
 
+// InTerminal reports whether e opens in a new terminal tab or window.
+func (e Editor) InTerminal() bool { return e.How() == Window || e.How() == Tab }
+
 // Args is e's command for the repo at path.
 func (e Editor) Args(path string) []string {
 	out := make([]string, len(e.Cmd))
@@ -60,8 +66,8 @@ var presets = []Editor{
 	{Name: "code", Cmd: []string{"code", "{path}"}},
 	{Name: "zed", Cmd: []string{"zed", "{path}"}},
 	{Name: "subl", Cmd: []string{"subl", "{path}"}},
-	{Name: "claude", Cmd: []string{"claude"}, Mode: Window},
-	{Name: "codex", Cmd: []string{"codex"}, Mode: Window},
+	{Name: "claude", Cmd: []string{"claude"}, Mode: Tab},
+	{Name: "codex", Cmd: []string{"codex"}, Mode: Tab},
 	{Name: "nvim", Cmd: []string{"nvim", "."}, Mode: Inline},
 	{Name: "vim", Cmd: []string{"vim", "."}, Mode: Inline},
 	{Name: Terminal, Mode: Window},
@@ -86,10 +92,10 @@ func Check(yours []Editor) []string {
 			problems = append(problems, at+": has no name")
 		case seen[e.Name]:
 			problems = append(problems, at+": is given twice")
-		case !slices.Contains([]Mode{"", GUI, Inline, Window}, e.Mode):
-			problems = append(problems, fmt.Sprintf("%s: mode %q isn't gui, inline or window", at, e.Mode))
-		case len(e.Cmd) == 0 && e.How() != Window:
-			problems = append(problems, at+": has no cmd, which only a window may leave out (a shell there)")
+		case !slices.Contains([]Mode{"", GUI, Inline, Window, Tab}, e.Mode):
+			problems = append(problems, fmt.Sprintf("%s: mode %q isn't gui, inline, window or tab", at, e.Mode))
+		case len(e.Cmd) == 0 && !e.InTerminal():
+			problems = append(problems, at+": has no cmd, which only a window or tab may leave out (a shell there)")
 		}
 		seen[e.Name] = true
 	}
@@ -151,10 +157,10 @@ func (e Editor) Describe() string {
 	switch {
 	case e.How() == Inline:
 		return "here, in this terminal"
-	case e.How() == Window && len(e.Cmd) == 0:
-		return "a shell in a new terminal window"
-	case e.How() == Window:
-		return "in a new terminal window"
+	case e.InTerminal() && len(e.Cmd) == 0:
+		return "a shell in a new terminal " + string(e.How())
+	case e.InTerminal():
+		return "in a new terminal " + string(e.How())
 	}
 	return "as an app"
 }

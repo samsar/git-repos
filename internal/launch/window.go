@@ -20,17 +20,28 @@ import (
 // and config.json names no terminal command to do it.
 var ErrNoWindow = errors.New("can't open a terminal window here")
 
-// Opener opens a new terminal window running an editor in a repo: the
-// terminal git-repos runs in, or config.json's terminal command.
+// Opener opens a new terminal tab or window running an editor in a repo:
+// the terminal git-repos runs in, or config.json's terminal command.
 type Opener struct {
 	// Name is the terminal, as a status line says it: Ghostty, tmux…
 	Name string
+	// tabs: it opens a Tab editor in a tab; else in a window, as it does
+	// a Window one.
+	tabs bool
 	open func(ctx context.Context, e Editor, path string) error
 }
 
-// Open opens a window running e in the repo at path.
+// Open opens a tab or a window (Kind) running e in the repo at path.
 func (o Opener) Open(ctx context.Context, e Editor, path string) error {
 	return o.open(ctx, e, path)
+}
+
+// Kind is what o opens for e: "tab", or "window".
+func (o Opener) Kind(e Editor) string {
+	if e.How() == Tab && o.tabs {
+		return "tab"
+	}
+	return "window"
 }
 
 // resolved is e's command for path, its program found on git-repos's own
@@ -68,8 +79,8 @@ func DetectOpener(template []string, getenv func(string) string, goos string) (O
 	if !ok {
 		return Opener{}, false
 	}
-	return Opener{Name: app.name, open: func(ctx context.Context, e Editor, path string) error {
-		return scriptWindow(ctx, app, e, path)
+	return Opener{Name: app.name, tabs: app.tab != "", open: func(ctx context.Context, e Editor, path string) error {
+		return scriptOpen(ctx, app, e, path)
 	}}, true
 }
 
@@ -144,18 +155,40 @@ func tmuxArgv(args []string, path, PATH string) []string {
 	return argv
 }
 
-// scriptApp is a terminal app git-repos opens windows in by AppleScript.
+// scriptApp is a terminal app git-repos opens windows, and tabs, in by
+// AppleScript: its window script, and its tab script ("" for an app
+// whose scripting opens no tabs, which opens a window for a tab).
 type scriptApp struct {
-	name, script string
+	name, window, tab string
+}
+
+// script is app's script for e: a tab's, when e opens in one and app
+// has one; else a window's.
+func (app scriptApp) script(e Editor) string {
+	if e.How() == Tab && app.tab != "" {
+		return app.tab
+	}
+	return app.window
 }
 
 // scriptable are the terminal apps that open windows by AppleScript, by
 // their TERM_PROGRAM. Each script takes the command line as item 1 of
-// argv, never as part of its source.
+// argv, never as part of its source. A tab opens in the front window,
+// git-repos's own (you just pressed a key in it), or a window when the
+// app has none. Terminal's scripting opens no tabs.
 var scriptable = map[string]scriptApp{
 	"ghostty": {"Ghostty", `on run argv
 	tell application id "com.mitchellh.ghostty"
 		new window with configuration {command:item 1 of argv}
+		activate
+	end tell
+end run`, `on run argv
+	tell application id "com.mitchellh.ghostty"
+		if (count of windows) is 0 then
+			new window with configuration {command:item 1 of argv}
+		else
+			new tab in front window with configuration {command:item 1 of argv}
+		end if
 		activate
 	end tell
 end run`},
@@ -164,13 +197,22 @@ end run`},
 		create window with default profile command (item 1 of argv)
 		activate
 	end tell
+end run`, `on run argv
+	tell application id "com.googlecode.iterm2"
+		if (count of windows) is 0 then
+			create window with default profile command (item 1 of argv)
+		else
+			tell current window to create tab with default profile command (item 1 of argv)
+		end if
+		activate
+	end tell
 end run`},
 	"Apple_Terminal": {"Terminal", `on run argv
 	tell application id "com.apple.Terminal"
 		do script (item 1 of argv)
 		activate
 	end tell
-end run`},
+end run`, ""},
 }
 
 // plainPath is a path a terminal's command line takes as one word,
@@ -178,11 +220,11 @@ end run`},
 // Terminal run one through a shell.
 var plainPath = regexp.MustCompile(`^/[A-Za-z0-9._+@/-]+$`)
 
-// scriptWindow opens a window of app running git-repos itself, by its
-// absolute path, with a token: git repos launch <token> reads the repo
+// scriptOpen opens a tab or a window of app running git-repos itself, by
+// its absolute path, with a token: git repos launch <token> reads the repo
 // and the editor's command from the file the token names, which only it
 // reads, once. So no path or command reaches AppleScript or a shell.
-func scriptWindow(ctx context.Context, app scriptApp, e Editor, path string) error {
+func scriptOpen(ctx context.Context, app scriptApp, e Editor, path string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -201,7 +243,7 @@ func scriptWindow(ctx context.Context, app scriptApp, e Editor, path string) err
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	argv := []string{}
-	for line := range strings.Lines(app.script) {
+	for line := range strings.Lines(app.script(e)) {
 		argv = append(argv, "-e", strings.TrimSuffix(line, "\n"))
 	}
 	argv = append(argv, self+" launch "+token)

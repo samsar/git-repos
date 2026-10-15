@@ -76,15 +76,15 @@ func TestCheck(t *testing.T) {
 		{Name: "a", Cmd: []string{"a"}},
 		{Cmd: []string{"b"}},
 		{Name: "a", Cmd: []string{"a"}},
-		{Name: "c", Cmd: []string{"c"}, Mode: "tab"},
+		{Name: "c", Cmd: []string{"c"}, Mode: "split"},
 		{Name: "d"},
 		{Name: "shell", Mode: Window},
 	})
 	want := []string{
 		"editors[1]: has no name",
 		`editor "a": is given twice`,
-		`editor "c": mode "tab" isn't gui, inline or window`,
-		`editor "d": has no cmd, which only a window may leave out (a shell there)`,
+		`editor "c": mode "split" isn't gui, inline, window or tab`,
+		`editor "d": has no cmd, which only a window or tab may leave out (a shell there)`,
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("problems\n %q\nwant\n %q", got, want)
@@ -198,5 +198,50 @@ func TestSweepHandoffs(t *testing.T) {
 	}
 	if _, err := os.Stat(handoffPath(fresh)); err != nil {
 		t.Errorf("the fresh handoff: %v", err)
+	}
+}
+
+// Agents open in a tab where the terminal opens tabs, as Ghostty and
+// iTerm2 do; in a window where it doesn't, as Terminal and tmux.
+func TestTabs(t *testing.T) {
+	claude := Editor{Name: "claude", Cmd: []string{"claude"}, Mode: Tab}
+	shell := Editor{Name: Terminal, Mode: Window}
+	env := func(term string) func(string) string {
+		return func(k string) string {
+			if k == "TERM_PROGRAM" {
+				return term
+			}
+			return ""
+		}
+	}
+	for term, want := range map[string]string{"ghostty": "tab", "iTerm.app": "tab", "Apple_Terminal": "window"} {
+		o, _ := DetectOpener(nil, env(term), "darwin")
+		if got := o.Kind(claude); got != want {
+			t.Errorf("%s opens claude in a %s, want a %s", term, got, want)
+		}
+		if got := o.Kind(shell); got != "window" {
+			t.Errorf("%s opens a shell in a %s", term, got)
+		}
+	}
+	if o, _ := DetectOpener(nil, func(k string) string { return map[string]string{"TMUX": "x"}[k] }, "darwin"); o.Kind(claude) != "window" {
+		t.Error("tmux opens a tab")
+	}
+	ghostty := scriptable["ghostty"]
+	if s := ghostty.script(claude); !strings.Contains(s, "new tab in front window") {
+		t.Errorf("Ghostty's script for a tab:\n%s", s)
+	}
+	if s := ghostty.script(shell); strings.Contains(s, "new tab") {
+		t.Errorf("Ghostty's script for a window:\n%s", s)
+	}
+	if s := scriptable["Apple_Terminal"].script(claude); !strings.Contains(s, "do script") {
+		t.Errorf("Terminal's script for a tab:\n%s", s)
+	}
+	for _, p := range presets {
+		if (p.Name == "claude" || p.Name == "codex") && p.How() != Tab {
+			t.Errorf("%s opens in a %s", p.Name, p.How())
+		}
+	}
+	if d := claude.Describe(); d != "in a new terminal tab" {
+		t.Errorf("Describe %q", d)
 	}
 }

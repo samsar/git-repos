@@ -85,18 +85,18 @@ func (m model) openIn(e launch.Editor, r git.RepoInfo) (tea.Model, tea.Cmd) {
 	switch {
 	case e.How() == launch.Inline:
 		return m, runInline(e, r)
-	case e.How() == launch.Window && !m.openerOK && len(e.Cmd) == 0:
+	case e.InTerminal() && !m.openerOK && len(e.Cmd) == 0:
 		return m, openShellCmd(r.Path)
-	case e.How() == launch.Window && !m.openerOK:
+	case e.InTerminal() && !m.openerOK:
 		return m, runInline(e, r)
-	case e.How() == launch.Window:
+	case e.InTerminal():
 		opener := m.opener
 		m.statusMsg = fmt.Sprintf("opening %s in %s…", r.Name, e.Name)
 		return m, func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
 			defer cancel()
 			err := opener.Open(ctx, e, r.Path)
-			return editorOpenedMsg{text: fmt.Sprintf("opened %s in %s, in a new %s window", r.Name, e.Name, opener.Name), err: err}
+			return editorOpenedMsg{text: fmt.Sprintf("opened %s in %s, in a new %s %s", r.Name, e.Name, opener.Name, opener.Kind(e)), err: err}
 		}
 	}
 	return m, func() tea.Msg {
@@ -169,12 +169,12 @@ func (m model) handlePickerKey(action, key string) (tea.Model, tea.Cmd) {
 // here when this one can't open them.
 func (m model) describe(e launch.Editor) string {
 	switch {
-	case e.How() == launch.Window && !m.openerOK:
-		return "here (this terminal can't open windows)"
-	case e.How() == launch.Window && len(e.Cmd) == 0:
-		return "a shell in a new " + m.opener.Name + " window"
-	case e.How() == launch.Window:
-		return "in a new " + m.opener.Name + " window"
+	case e.InTerminal() && !m.openerOK:
+		return "here (this terminal can't open tabs or windows)"
+	case e.InTerminal() && len(e.Cmd) == 0:
+		return "a shell in a new " + m.opener.Name + " " + m.opener.Kind(e)
+	case e.InTerminal():
+		return "in a new " + m.opener.Name + " " + m.opener.Kind(e)
 	}
 	return e.Describe()
 }

@@ -25,15 +25,17 @@ Add or change them in config.json:
   "editors": [
     {"name": "cursor", "cmd": ["cursor", "{path}"]},
     {"name": "nvim",   "cmd": ["nvim", "."], "mode": "inline"},
-    {"name": "claude", "cmd": ["claude"],    "mode": "window"}
+    {"name": "claude", "cmd": ["claude"],    "mode": "tab"}
   ]
 
 {path} is the repo's directory, which is also where the command runs. A
 mode is gui (the default: an app beside git-repos), inline (in git-repos's
-terminal, which waits for it) or window (a new terminal window, which keeps
-a shell in the repo once it exits). Windows open in Ghostty, iTerm2 or
-Terminal on macOS, or in tmux; for another terminal, give the command that
-opens one, {cmd} standing for the editor's command:
+terminal, which waits for it), tab (a new tab of git-repos's terminal
+window) or window (a new terminal window); a tab or a window keeps a shell
+in the repo once the command exits. Tabs and windows open in Ghostty or
+iTerm2 on macOS, windows in Terminal (whose scripting opens no tabs), and
+tmux windows in tmux; for another terminal, give the command that opens
+one, {cmd} standing for the editor's command:
 
   "terminal": ["wezterm", "start", "--cwd", "{path}", "--", "{cmd}"]`,
 	Args: cobra.NoArgs,
@@ -69,10 +71,13 @@ opens one, {cmd} standing for the editor's command:
 		if cfg.DefaultEditor != "" && def.Name == "" {
 			fmt.Fprintf(out, "⚠ default_editor %q isn't one of these\n", cfg.DefaultEditor)
 		}
-		if o, ok := launch.DetectOpener(cfg.Terminal, os.Getenv, runtime.GOOS); ok {
-			fmt.Fprintf(out, "windows open in %s\n", o.Name)
-		} else {
-			fmt.Fprintln(out, "windows: this terminal can't open them, so window editors open here instead (set terminal in config.json)")
+		switch o, ok := launch.DetectOpener(cfg.Terminal, os.Getenv, runtime.GOOS); {
+		case !ok:
+			fmt.Fprintln(out, "tabs and windows: this terminal can't open them, so those editors open here instead (set terminal in config.json)")
+		case o.Kind(launch.Editor{Mode: launch.Tab}) == "tab":
+			fmt.Fprintf(out, "tabs and windows open in %s\n", o.Name)
+		default:
+			fmt.Fprintf(out, "windows open in %s, tabs too, as windows\n", o.Name)
 		}
 		return nil
 	},

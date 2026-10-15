@@ -159,9 +159,10 @@ If config.json's keys have a problem, the TUI uses the default keys and says so 
 
 - **gui**: as an app beside git-repos, which keeps running
 - **inline**: here, in git-repos's terminal, which comes back when you exit (vim, nvim)
-- **window**: in a new terminal window in the repo, which keeps a shell there once the command exits (claude, codex, a shell)
+- **tab**: in a new tab of the terminal window git-repos runs in, which keeps a shell in the repo once the command exits (claude, codex)
+- **window**: the same in a new terminal window (a shell)
 
-Windows open in Ghostty, iTerm2 or Terminal on macOS, or in a new tmux window inside tmux. In any other terminal, window editors open inline instead, unless you give the command that opens a window (below). Pick the default in settings (`z`), or in config.json, which also adds or changes editors:
+Tabs and windows open in Ghostty or iTerm2 on macOS; Terminal opens a window for a tab, since its scripting can't open tabs, and inside tmux both open a tmux window. In any other terminal they open inline instead, unless you give the command that opens one (below). Pick the default in settings (`z`), or in config.json, which also adds or changes editors:
 
 ```json
 {
@@ -169,7 +170,7 @@ Windows open in Ghostty, iTerm2 or Terminal on macOS, or in a new tmux window in
   "editors": [
     {"name": "cursor", "cmd": ["cursor", "{path}"]},
     {"name": "nvim", "cmd": ["nvim", "."], "mode": "inline"},
-    {"name": "claude", "cmd": ["claude", "--continue"], "mode": "window"}
+    {"name": "claude", "cmd": ["claude", "--continue"], "mode": "tab"}
   ],
   "terminal": ["wezterm", "start", "--cwd", "{path}", "--", "{cmd}"]
 }
