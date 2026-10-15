@@ -38,6 +38,9 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagJSON, "json", false, "JSON output (implies --plain)")
 
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(keysCmd)
+	rootCmd.AddCommand(editorsCmd)
+	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 

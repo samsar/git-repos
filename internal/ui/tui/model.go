@@ -2,10 +2,10 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +16,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/keys"
+	"github.com/samsar/git-repos/internal/launch"
 	"github.com/samsar/git-repos/internal/version"
 )
 
@@ -28,6 +30,7 @@ const (
 	stateList
 	stateDetail
 	stateSettings
+	statePRs
 )
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -38,8 +41,14 @@ type scanStartedMsg struct {
 }
 type repoScannedMsg git.ScanResult
 type scanDoneMsg struct{}
-type prsLoadedMsg []git.RepoInfo
-type singleRepoPRLoadedMsg git.RepoInfo
+
+// prsLoadedMsg is the PRs, yours and those asking for your review, which
+// the handler matches to the repos as they are by then; or why they
+// couldn't be looked up.
+type prsLoadedMsg struct {
+	prs git.PRs
+	err error
+}
 type commitsLoadedMsg []string
 type behindCommitsLoadedMsg []string
 type fetchDoneMsg git.RepoInfo
@@ -191,17 +200,46 @@ type model struct {
 	resultCh      <-chan git.ScanResult
 	prsLoading    bool
 	prsEverLoaded bool
+	prs           git.PRs // yours and those asking for your review, as last looked up
+	prsErr        error   // why the last lookup failed, if it did
 	fetchingPR    bool
 	refreshing    bool
 	refreshRepos  []git.RepoInfo
+
+	// PR page
+	prCursor int // in displayPRs()
+	prOffset int // in prLines()
+	prFilter prFilter
+	prQuery  string // the PR page's search, apart from the repos'
+	// settingsFrom is the page the settings go back to: the list, or the
+	// detail view.
+	settingsFrom viewState
+	// detailFrom is the page the detail view goes back to: the list, or
+	// the PR page, when listCursor is the list's cursor to put back.
+	detailFrom viewState
+	listCursor int
+	// detailPath is the repo the detail view shows, by path, which the
+	// settings opened from it go back to.
+	detailPath string
 
 	// search
 	searching   bool
 	searchQuery string
 
+	// editors
+	editors       []launch.Editor
+	defaultEditor string // by name; "" for launch.Pick's choice
+	opener        launch.Opener
+	openerOK      bool
+	showPicker    bool
+	pickerCursor  int
+
 	// ui
+	keys              keymap
+	keyProblems       []string // config.json's keys' problems, the defaults in use
 	spinner           spinner.Model
 	showHelp          bool
+	help              keysHelp
 	showDeleteConfirm bool
 
 	// settings
@@ -217,19 +255,58 @@ type model struct {
 	updateAvailable bool
 }
 
-func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) model {
+// Options is how the TUI runs: what it scans, and what config.json says.
+type Options struct {
+	Dirs            []string
+	Fetch           bool // git fetch in every repo as it scans
+	PRs             bool // look up open GitHub PRs
+	Hidden          map[string]bool
+	AutoRefreshMins int
+	BootFetch       bool
+	ConfigPath      string
+	Version         string
+	// Bindings are the keys, and KeyProblems config.json's keys' problems,
+	// the default keys in use when it has any.
+	Bindings    []keys.Binding
+	KeyProblems []string
+	// Editors are the editors a repo opens in (launch.Available), and
+	// DefaultEditor the one e opens, by name; "" for launch.Pick's choice.
+	Editors       []launch.Editor
+	DefaultEditor string
+	// EditorProblems are config.json's editors' problems, which leave
+	// them out.
+	EditorProblems []string
+	// Opener opens terminal windows, when OpenerOK.
+	Opener   launch.Opener
+	OpenerOK bool
+}
+
+func New(o Options) model {
+	statusMsg := ""
+	if n := len(o.KeyProblems); n > 0 {
+		statusMsg = fmt.Sprintf("config.json's keys have %d problem(s), so the default keys are in use: run git repos keys check", n)
+	} else if len(o.EditorProblems) > 0 {
+		statusMsg = "config.json's editors are left out: " + o.EditorProblems[0] + " (git repos editors lists them)"
+	}
 	return model{
-		scanDirs:        dirs,
-		doFetch:         doFetch,
-		noPRs:           noPRs,
+		keys:            keymap{bindings: o.Bindings},
+		keyProblems:     o.KeyProblems,
+		editors:         o.Editors,
+		defaultEditor:   o.DefaultEditor,
+		opener:          o.Opener,
+		openerOK:        o.OpenerOK,
+		statusMsg:       statusMsg,
+		scanDirs:        o.Dirs,
+		doFetch:         o.Fetch,
+		noPRs:           !o.PRs,
 		state:           stateScanning,
 		spinner:         newSpinner(),
 		sortCol:         git.SortStatus,
-		hidden:          hidden,
-		autoRefreshMins: autoRefreshMins,
-		bootFetch:       bootFetch,
-		configPath:      configPath,
-		version:         normalizeVersion(version),
+		hidden:          o.Hidden,
+		autoRefreshMins: o.AutoRefreshMins,
+		bootFetch:       o.BootFetch,
+		configPath:      o.ConfigPath,
+		version:         normalizeVersion(o.Version),
 		gitVersion:      detectCLIVersion("git", "--version"),
 		ghVersion:       detectCLIVersion("gh", "--version"),
 	}
@@ -271,20 +348,21 @@ func detectCLIVersion(name string, args ...string) string {
 	return strings.TrimSpace(line)
 }
 
-// saveConfig persists current settings to disk.
-func (m model) saveConfig() {
-	hidden := make([]string, 0, len(m.hidden))
-	for name := range m.hidden {
-		hidden = append(hidden, name)
+// saveConfig persists the settings the TUI changes to disk, keeping
+// everything else config.json says (your keys, and dirs given as
+// arguments rather than from the file).
+func (m model) saveConfig() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
 	}
-	sort.Strings(hidden)
-	cfg := &config.Config{
-		Dirs:            m.scanDirs,
-		Hidden:          hidden,
-		AutoRefreshMins: m.autoRefreshMins,
-		BootFetch:       m.bootFetch,
+	if cfg == nil {
+		cfg = &config.Config{}
 	}
-	_ = config.Save(cfg)
+	cfg.AutoRefreshMins = m.autoRefreshMins
+	cfg.BootFetch = m.bootFetch
+	cfg.DefaultEditor = m.defaultEditor
+	return config.Save(cfg)
 }
 
 // colWidths returns dynamic widths for the three resizable columns: BRANCH, SYNC,
@@ -407,19 +485,13 @@ func waitForScanCmd(ch <-chan git.ScanResult) tea.Cmd {
 	}
 }
 
-func loadPRsCmd(repos []git.RepoInfo) tea.Cmd {
+// loadPRsCmd looks up the PRs. It touches no repo: the handler matches
+// the PRs to the repos as they are when it answers, which a pull or a
+// refresh meanwhile may have changed.
+func loadPRsCmd() tea.Cmd {
 	return func() tea.Msg {
-		cp := make([]git.RepoInfo, len(repos))
-		copy(cp, repos)
-		git.FetchAndMatchPRs(cp)
-		return prsLoadedMsg(cp)
-	}
-}
-
-func loadPRForRepoCmd(repo git.RepoInfo) tea.Cmd {
-	return func() tea.Msg {
-		git.FetchAndMatchPRForRepo(&repo)
-		return singleRepoPRLoadedMsg(repo)
+		prs, err := git.FetchPRs()
+		return prsLoadedMsg{prs: prs, err: err}
 	}
 }
 
@@ -520,8 +592,8 @@ func openBrowser(url string) {
 }
 
 // Run starts the full-screen TUI program.
-func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) error {
-	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins, bootFetch, configPath, version)
+func Run(o Options) error {
+	m := New(o)
 	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err

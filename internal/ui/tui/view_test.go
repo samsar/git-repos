@@ -1,14 +1,17 @@
 package tui
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/launch"
 )
 
 // Every view must fill the whole terminal inside a border, and give every cell
@@ -77,6 +80,54 @@ func TestViewsFillTerminal(t *testing.T) {
 			m := base()
 			m.showDeleteConfirm = true
 			return m
+		},
+		"prs page":          func() model { return prsPage(base()) },
+		"prs page narrow":   func() model { return resize(prsPage(base()), 90, 30) },
+		"prs page filtered": func() model { m := prsPage(base()); m.prFilter = prsReview; return m },
+		"prs page loading":  func() model { m := prsPage(base()); m.prsLoading = true; return m },
+		"prs page error": func() model {
+			m := prsPage(base())
+			m.prsErr = errors.New("gh api graphql: HTTP 502: Bad Gateway, which is a long error to see in the header")
+			return m
+		},
+		"prs page empty": func() model { m := prsPage(base()); m.prs = git.PRs{}; return m },
+		"long status message": func() model {
+			m := base()
+			m.statusMsg = strings.Repeat("config.json's keys have 3 problem(s), so the default keys are in use ", 3)
+			return m
+		},
+		"narrow picker, last editor": func() model {
+			m := resize(base(), 80, 24)
+			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
+			m = press(m, "E")
+			for range m.editors {
+				m = press(m, "j")
+			}
+			if m.pickerCursor != len(m.editors)-1 || !strings.Contains(plain(m.View().Content), "› 9") {
+				t.Errorf("the picker doesn't show its last editor selected:\n%s", plain(m.View().Content))
+			}
+			return m
+		},
+		"narrow prs page error": func() model {
+			m := resize(prsPage(base()), 80, 24)
+			m.prs, m.prsErr = git.PRs{}, errors.New("gh api graphql: HTTP 401: Bad credentials (https://api.github.com/graphql)")
+			return m
+		},
+		"narrow settings": func() model {
+			m := resize(base(), 80, 24)
+			m.state = stateSettings
+			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
+			return m
+		},
+		"list editor picker": func() model {
+			m := base()
+			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
+			return press(m, "E")
+		},
+		"detail editor picker": func() model {
+			m := detail(0, true)
+			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
+			return press(m, "E")
 		},
 		"scanning": func() model {
 			m := base()
@@ -163,6 +214,21 @@ func TestVersionPaddedFromBorder(t *testing.T) {
 			}
 		}
 	}
+}
+
+// prsPage is m on the PR page, with PRs of each kind, one with a title
+// longer than any terminal is wide.
+func prsPage(m model) model {
+	m.state, m.prsEverLoaded = statePRs, true
+	m.prs = git.PRs{
+		Mine: []git.PullRequest{
+			{Repo: "catio-tech/catio-harness", Number: 263, Title: strings.Repeat("a title longer than the terminal is wide ", 4), Branch: "fix/drain-handoff", Checks: "FAILURE", UpdatedAt: time.Now().Add(-time.Hour)},
+			{Repo: "me/side", Number: 7, Title: "wip", Draft: true, UpdatedAt: time.Now().Add(-100 * time.Hour)},
+		},
+		ReviewRequested: []git.PullRequest{{Repo: "catio-tech/a-repo-with-a-very-long-name-indeed", Number: 1234, Title: "review me", Author: "someone-with-a-long-login", Review: "APPROVED", Checks: "SUCCESS"}},
+		MineTotal:       2, ReviewTotal: 1,
+	}
+	return m
 }
 
 // resize sends the model a w×h terminal size, as a terminal resize would.
@@ -252,4 +318,20 @@ func plain(s string) string {
 		i++
 	}
 	return b.String()
+}
+
+func TestWindowTitle(t *testing.T) {
+	m := resize(model{
+		state:   stateList,
+		spinner: newSpinner(),
+		repos:   []git.RepoInfo{repo("my-api", "main", "init")},
+	}, 120, 40)
+	if got := m.View().WindowTitle; got != "git-repos" {
+		t.Errorf("list title = %q, want %q", got, "git-repos")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := next.(model).View().WindowTitle; got != "git-repos: my-api" {
+		t.Errorf("detail title = %q, want %q", got, "git-repos: my-api")
+	}
 }

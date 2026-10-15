@@ -91,14 +91,23 @@ func Run(dirs []string, doFetch, fetchPRs, noColor bool, hidden map[string]bool)
 
 	if fetchPRs {
 		fmt.Printf("%sLooking up open PRs…%s", cDim, cReset)
-		git.FetchAndMatchPRs(repos)
+		prs, err := git.FetchAndMatchPRs(repos)
 		matched := 0
 		for _, r := range repos {
 			if r.PRNumber > 0 {
 				matched++
 			}
 		}
-		fmt.Printf("\r%sPR lookup done (%d matched)          %s\n", cDim, matched, cReset)
+		switch {
+		case err != nil:
+			fmt.Printf("\r%sPR lookup failed          %s\n", cDim, cReset)
+			fmt.Fprintf(os.Stderr, "warning: couldn't look up PRs: %v\n", err)
+		case prs.Warning != "":
+			fmt.Printf("\r%sPR lookup done (%d matched)          %s\n", cDim, matched, cReset)
+			fmt.Fprintf(os.Stderr, "warning: GitHub left some PRs out: %s\n", prs.Warning)
+		default:
+			fmt.Printf("\r%sPR lookup done (%d matched)          %s\n", cDim, matched, cReset)
+		}
 	}
 
 	git.SortRepos(repos)

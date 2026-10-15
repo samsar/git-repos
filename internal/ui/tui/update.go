@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strconv"
 
 	"charm.land/bubbles/v2/spinner"
@@ -8,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/version"
 )
 
@@ -68,14 +70,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshRepos = nil
 			m.refreshing = false
 			m.statusMsg = ""
+			// The PRs already looked up hold until the next lookup answers.
+			git.MatchPRs(m.repos, m.prs)
 			git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
 			m.cursor = min(m.cursor, max(0, len(m.repos)-1))
+			m.listCursor = min(m.listCursor, max(0, len(m.repos)-1))
 			if m.state == stateDetail {
 				m.detailVP.SetContent(m.renderDetailContent())
 			}
 			if !m.noPRs {
 				m.prsLoading = true
-				return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+				return m, tea.Batch(m.spinner.Tick, loadPRsCmd())
 			}
 			return m, nil
 		}
@@ -83,45 +88,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateList
 		if !m.noPRs {
 			m.prsLoading = true
-			return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+			return m, tea.Batch(m.spinner.Tick, loadPRsCmd())
 		}
 		return m, nil
 
 	case prsLoadedMsg:
-		m.repos = []git.RepoInfo(msg)
 		m.prsLoading = false
 		m.prsEverLoaded = true
-		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
-		if m.state == stateDetail {
-			m.detailVP.SetContent(m.renderDetailContent())
-		}
-		return m, nil
-
-	case singleRepoPRLoadedMsg:
-		updated := git.RepoInfo(msg)
-		activePath := ""
-		if m.state == stateDetail && m.cursor < len(m.repos) {
-			activePath = m.repos[m.cursor].Path
-		}
-		for i, r := range m.repos {
-			if r.Path == updated.Path {
-				m.repos[i] = updated
-				break
-			}
-		}
-		m.prsLoading = false
-		m.prsEverLoaded = true
-		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
-		if activePath != "" {
-			for i, r := range m.repos {
-				if r.Path == activePath {
-					m.cursor = i
-					break
-				}
-			}
-		}
-		if m.state == stateDetail {
-			m.detailVP.SetContent(m.renderDetailContent())
+		m.prsErr = msg.err
+		if msg.err == nil {
+			m.prs = msg.prs
+			m = m.matchPRs()
 		}
 		return m, nil
 
@@ -152,6 +129,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i, r := range m.repos {
 			if r.Path == updated.Path {
 				m.repos[i] = updated
+				// Its PR from those already looked up, until the next lookup.
+				git.MatchPRs(m.repos[i:i+1], m.prs)
 				break
 			}
 		}
@@ -182,7 +161,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !m.noPRs {
 				m.prsLoading = true
-				cmds = append(cmds, m.spinner.Tick, loadPRForRepoCmd(updated))
+				cmds = append(cmds, m.spinner.Tick, loadPRsCmd())
 			}
 			return m, tea.Batch(cmds...)
 		}
@@ -192,11 +171,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.repos = []git.RepoInfo(msg)
 		m.fetchingPR = false
 		m.statusMsg = "pulled all repos"
+		git.MatchPRs(m.repos, m.prs)
 		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
 		m.cursor = min(m.cursor, max(0, len(m.repos)-1))
 		if !m.noPRs {
 			m.prsLoading = true
-			return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+			return m, tea.Batch(m.spinner.Tick, loadPRsCmd())
 		}
 		return m, nil
 
@@ -211,6 +191,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, autoRefreshTickCmd(m.autoRefreshMins)
 		}
 		return m, nil
+
+	case editorOpenedMsg:
+		return m.onEditorOpened(msg), nil
 
 	case shellReturnMsg:
 		m.statusMsg = ""
@@ -255,37 +238,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// While the help waits for a new key, every key goes to it, ctrl+c too
+	if m.showHelp && m.help.stage == recording {
+		return m.record(key), nil
+	}
+
 	// ctrl+c always quits, even in search mode
-	if key == "ctrl+c" {
+	if key == keys.CtrlC {
 		return m, tea.Quit
 	}
 
-	// Search mode intercepts all remaining keys while active
+	// Text fields take every remaining key while active
 	if m.searching {
 		return m.handleSearchKey(msg)
 	}
-
-	// Global: quit
-	if key == "q" {
-		return m, tea.Quit
+	if m.settingsEditing {
+		return m.handleSettingsEditKey(key)
 	}
 
-	// Help overlay intercepts all keys
-	if m.showHelp {
-		m.showHelp = false
-		return m, nil
-	}
+	action := m.keys.in(m.keyView(), key)
 
-	// Global: toggle help
-	if key == "?" {
-		m.showHelp = true
-		return m, nil
-	}
-
-	// Delete confirmation intercepts all keys
-	if m.showDeleteConfirm {
-		switch key {
-		case "y", "enter":
+	// A prompt answers its own keys first, whatever your keys bind them
+	// to: y and enter confirm a delete, y and n answer the help's swap
+	// question, and 1 to 9 pick an editor. Quit quits from any other key.
+	if m.showDeleteConfirm && !m.showHelp {
+		switch {
+		case key == "y" || key == "enter":
 			filtered := m.displayRepos()
 			if len(filtered) > 0 && m.cursor < len(filtered) {
 				repo := filtered[m.cursor]
@@ -293,29 +271,57 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.statusMsg = "deleting " + repo.Name + "…"
 				return m, tea.Batch(m.spinner.Tick, deleteRepoDirCmd(repo))
 			}
+		case action == keys.Help: // the help over it, as before it
+			return m.openHelp(), nil
+		case action == keys.Quit:
+			return m, tea.Quit
 		}
 		m.showDeleteConfirm = false
 		return m, nil
 	}
+	if m.showPicker {
+		return m.handlePickerKey(action, key)
+	}
+	if m.showHelp && m.help.stage == asking {
+		return m.handleHelpKey(action, key)
+	}
+
+	if action == keys.Quit {
+		return m, tea.Quit
+	}
+
+	// The help, where you also rebind keys, takes every key while open
+	if m.showHelp {
+		return m.handleHelpKey(action, key)
+	}
+
+	if action == keys.Help {
+		return m.openHelp(), nil
+	}
 
 	switch m.state {
 	case stateList:
-		return m.handleListKey(key)
+		return m.handleListKey(action)
 	case stateDetail:
-		return m.handleDetailKey(key)
+		return m.handleDetailKey(action)
 	case stateSettings:
-		return m.handleSettingsKey(key)
+		return m.handleSettingsKey(action)
+	case statePRs:
+		return m.handlePRsKey(action)
 	}
 	return m, nil
 }
 
-func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
+func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 	filtered := m.displayRepos()
 	n := len(filtered)
 	visRows := m.visibleRows()
+	// The cursor stays on a repo shown, whatever left fewer.
+	m.cursor = max(0, min(m.cursor, n-1))
+	m.offset = min(m.offset, m.cursor)
 
-	switch key {
-	case "up", "k":
+	switch action {
+	case keys.MoveUp:
 		if m.cursor > 0 {
 			m.cursor--
 			if m.cursor < m.offset {
@@ -323,7 +329,7 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "down", "j":
+	case keys.MoveDown:
 		if m.cursor < n-1 {
 			m.cursor++
 			if m.cursor >= m.offset+visRows {
@@ -331,15 +337,15 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "g", "home":
+	case keys.First:
 		m.cursor = 0
 		m.offset = 0
 
-	case "G", "end":
+	case keys.Last:
 		m.cursor = max(0, n-1)
 		m.offset = clampOffset(n, visRows)
 
-	case "ctrl+f":
+	case keys.PageDown:
 		m.cursor += visRows
 		if m.cursor >= n {
 			m.cursor = n - 1
@@ -348,7 +354,7 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			m.offset = m.cursor - visRows + 1
 		}
 
-	case "ctrl+b":
+	case keys.PageUp:
 		m.cursor -= visRows
 		if m.cursor < 0 {
 			m.cursor = 0
@@ -357,73 +363,68 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			m.offset = m.cursor
 		}
 
-	case "/":
+	case keys.Search:
 		m.searching = true
 		// Keep existing query so user can refine it; cursor stays put.
 		return m, nil
 
-	case "enter":
+	case keys.Details:
 		if n == 0 {
 			return m, nil
 		}
 		// Translate filtered cursor → full m.repos index for detail view.
-		m.cursor = m.filteredToFullIdx(m.cursor)
-		m.state = stateDetail
-		m.commitsLoaded = false
-		m.detailCommits = nil
-		m.behindLoaded = false
-		m.behindCommits = nil
-		m.detailVP = viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(m.detailVPHeight()))
-		m.detailVP.Style = lipgloss.NewStyle().Background(rowBg)
-		m.detailVP.SetContent(m.renderDetailContent())
-		cmds := []tea.Cmd{loadCommitsCmd(m.repos[m.cursor].Path)}
-		if m.repos[m.cursor].Behind > 0 {
-			cmds = append(cmds, loadBehindCommitsCmd(m.repos[m.cursor].Path))
-		} else {
-			m.behindLoaded = true
-		}
-		return m, tea.Batch(cmds...)
+		m.detailFrom = stateList
+		return m.openDetail(m.filteredToFullIdx(m.cursor))
 
-	case "o":
+	case keys.SwitchPage:
+		return m.showPRs(), nil
+
+	case keys.ViewPR:
 		if n > 0 && filtered[m.cursor].PRUrl != "" {
 			return m, openURLCmd(filtered[m.cursor].PRUrl)
 		}
 
-	case "p":
+	case keys.Pull:
 		if n > 0 {
 			m.fetchingPR = true
 			m.statusMsg = "pulling " + filtered[m.cursor].Name + "…"
 			return m, tea.Batch(m.spinner.Tick, fetchRepoCmd(filtered[m.cursor].Path))
 		}
 
-	case "ctrl+p":
+	case keys.PullAll:
 		if n > 0 && !m.fetchingPR && !m.refreshing {
 			m.fetchingPR = true
 			m.statusMsg = "pulling all repos…"
 			return m, tea.Batch(m.spinner.Tick, pullAllCmd(m.repos))
 		}
 
-	case "s":
+	case keys.Shell:
 		if n > 0 {
 			return m, openShellCmd(filtered[m.cursor].Path)
 		}
 
-	case "ctrl+d":
+	case keys.OpenEditor:
+		return m.openInDefault()
+
+	case keys.PickEditor:
+		return m.openPicker(), nil
+
+	case keys.Delete:
 		if n > 0 {
 			m.showDeleteConfirm = true
 		}
 
-	case "esc":
+	case keys.Back:
 		if m.searchQuery != "" {
 			m.searchQuery = ""
 			m.cursor = 0
 			m.offset = 0
 		}
 
-	case "z":
-		m.state = stateSettings
+	case keys.Settings:
+		m.state, m.settingsFrom = stateSettings, stateList
 
-	case "r":
+	case keys.Refresh:
 		if !m.refreshing {
 			m.refreshing = true
 			m.refreshRepos = nil
@@ -433,23 +434,66 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		}
 
 	// ── Sorting ───────────────────────────────────────────────────────────
-	case "0":
+	case keys.SortStatus:
 		return m.applySort(git.SortStatus), nil
-	case "N":
+	case keys.SortName:
 		return m.applySort(git.SortName), nil
-	case "B":
+	case keys.SortBranch:
 		return m.applySort(git.SortBranch), nil
-	case "S":
+	case keys.SortSync:
 		return m.applySort(git.SortSync), nil
-	case "C":
+	case keys.SortChanges:
 		return m.applySort(git.SortChanges), nil
-	case "T":
+	case keys.SortTime:
 		return m.applySort(git.SortLastChanged), nil
-	case "P":
+	case keys.SortPR:
 		return m.applySort(git.SortPR), nil
 	}
 
 	return m, nil
+}
+
+// matchPRs gives each repo its PR from m.prs and re-sorts them, the
+// detail view keeping its repo, and keeps the PR page's cursor on a PR.
+func (m model) matchPRs() model {
+	activePath := ""
+	if m.state == stateDetail && m.cursor < len(m.repos) {
+		activePath = m.repos[m.cursor].Path
+	}
+	git.MatchPRs(m.repos, m.prs)
+	git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
+	for i, r := range m.repos {
+		if activePath != "" && r.Path == activePath {
+			m.cursor = i
+			break
+		}
+	}
+	m.prCursor = max(0, min(m.prCursor, len(m.displayPRs())-1))
+	m = m.trackPRs()
+	if m.state == stateDetail {
+		m.detailVP.SetContent(m.renderDetailContent())
+	}
+	return m
+}
+
+// openDetail shows the detail view of m.repos[i], loading its commits.
+func (m model) openDetail(i int) (tea.Model, tea.Cmd) {
+	m.cursor, m.detailPath = i, m.repos[i].Path
+	m.state = stateDetail
+	m.commitsLoaded = false
+	m.detailCommits = nil
+	m.behindLoaded = false
+	m.behindCommits = nil
+	m.detailVP = viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(m.detailVPHeight()))
+	m.detailVP.Style = lipgloss.NewStyle().Background(rowBg)
+	m.detailVP.SetContent(m.renderDetailContent())
+	cmds := []tea.Cmd{loadCommitsCmd(m.repos[m.cursor].Path)}
+	if m.repos[m.cursor].Behind > 0 {
+		cmds = append(cmds, loadBehindCommitsCmd(m.repos[m.cursor].Path))
+	} else {
+		m.behindLoaded = true
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) applySort(col git.SortColumn) model {
@@ -463,26 +507,32 @@ func (m model) applySort(col git.SortColumn) model {
 	return m
 }
 
-func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
-		// Translate full m.repos cursor back to filtered-list cursor.
+func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
+	switch action {
+	case keys.Back:
+		// Back to the PR page it was opened from, its list cursor put back;
+		// else translate full m.repos cursor back to filtered-list cursor.
+		if m.detailFrom == statePRs {
+			m.state, m.detailFrom = statePRs, stateList
+			m.cursor = max(0, min(m.listCursor, len(m.displayRepos())-1))
+			return m, nil
+		}
 		m.cursor = m.fullToFilteredIdx(m.cursor)
 		m.state = stateList
 		return m, nil
 
-	case "up", "k":
+	case keys.MoveUp:
 		m.detailVP.ScrollUp(1)
 
-	case "down", "j":
+	case keys.MoveDown:
 		m.detailVP.ScrollDown(1)
 
-	case "o":
+	case keys.ViewPR:
 		if len(m.repos) > 0 && m.repos[m.cursor].PRUrl != "" {
 			return m, openURLCmd(m.repos[m.cursor].PRUrl)
 		}
 
-	case "g":
+	case keys.OpenGitHub:
 		if len(m.repos) > 0 {
 			r := m.repos[m.cursor]
 			url := git.RemoteToWebURL(r.RemoteURL)
@@ -499,83 +549,107 @@ func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "p":
+	case keys.Pull:
 		if len(m.repos) > 0 {
 			m.fetchingPR = true
 			m.statusMsg = "pulling " + m.repos[m.cursor].Name + "…"
 			return m, tea.Batch(m.spinner.Tick, fetchRepoCmd(m.repos[m.cursor].Path))
 		}
 
-	case "s":
+	case keys.Shell:
 		if len(m.repos) > 0 {
 			return m, openShellCmd(m.repos[m.cursor].Path)
 		}
 
-	case "r":
+	case keys.OpenEditor:
+		return m.openInDefault()
+
+	case keys.PickEditor:
+		return m.openPicker(), nil
+
+	case keys.Refresh:
 		if len(m.repos) > 0 && !m.fetchingPR {
 			m.fetchingPR = true
 			m.statusMsg = "refreshing " + m.repos[m.cursor].Name + "…"
 			return m, tea.Batch(m.spinner.Tick, refreshSingleRepoCmd(m.repos[m.cursor].Path))
 		}
 
-	case "z":
-		m.state = stateSettings
+	case keys.Settings:
+		m.state, m.settingsFrom = stateSettings, stateDetail
 	}
 	return m, nil
 }
 
-func (m model) handleSettingsKey(key string) (tea.Model, tea.Cmd) {
-	if m.settingsEditing {
-		switch key {
-		case "enter":
-			if n, err := strconv.Atoi(m.settingsEditBuf); err == nil && n >= 0 {
-				m.autoRefreshMins = n
-			}
-			m.settingsEditing = false
-			m.settingsEditBuf = ""
-		case "esc":
-			m.settingsEditing = false
-			m.settingsEditBuf = ""
-		case "backspace":
-			if len(m.settingsEditBuf) > 0 {
-				m.settingsEditBuf = m.settingsEditBuf[:len(m.settingsEditBuf)-1]
-			}
-		default:
-			if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
-				m.settingsEditBuf += key
-			}
-		}
-		return m, nil
-	}
-
+// handleSettingsEditKey is the number field of the setting being edited:
+// it takes every key while open.
+func (m model) handleSettingsEditKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "j", "down":
-		if m.settingsCursor < 1 {
+	case "enter":
+		if n, err := strconv.Atoi(m.settingsEditBuf); err == nil && n >= 0 {
+			m.autoRefreshMins = n
+		}
+		m.settingsEditing = false
+		m.settingsEditBuf = ""
+	case "esc":
+		m.settingsEditing = false
+		m.settingsEditBuf = ""
+	case "backspace":
+		if len(m.settingsEditBuf) > 0 {
+			m.settingsEditBuf = m.settingsEditBuf[:len(m.settingsEditBuf)-1]
+		}
+	default:
+		if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
+			m.settingsEditBuf += key
+		}
+	}
+	return m, nil
+}
+
+// settingsRows is how many settings the settings view lists.
+const settingsRows = 3
+
+func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
+	switch action {
+	case keys.MoveDown:
+		if m.settingsCursor < settingsRows-1 {
 			m.settingsCursor++
 		}
-	case "k", "up":
+	case keys.MoveUp:
 		if m.settingsCursor > 0 {
 			m.settingsCursor--
 		}
-	case "space", "enter":
+	case keys.Toggle:
 		switch m.settingsCursor {
 		case 0: // auto_refresh_mins — start editing
 			m.settingsEditing = true
 			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
 		case 1: // boot_fetch — toggle
 			m.bootFetch = !m.bootFetch
+		case 2: // default_editor — the next one
+			m.defaultEditor = m.nextDefaultEditor()
 		}
-	case "e":
+	case keys.Edit:
 		if m.settingsCursor == 0 {
 			m.settingsEditing = true
 			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
 		}
-	case "esc":
+	case keys.Back:
 		m.state = stateList
-		m.saveConfig()
+		if err := m.saveConfig(); err != nil {
+			m.statusMsg = "couldn't save settings: " + err.Error()
+		}
 		var cmds []tea.Cmd
 		if m.autoRefreshMins > 0 {
 			cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
+		}
+		// Back to the detail view they were opened from, opened again on
+		// its repo, wherever pulls and lookups meanwhile sorted it, at the
+		// terminal's size now; the list when the repo has gone.
+		if m.settingsFrom == stateDetail {
+			if i := slices.IndexFunc(m.repos, func(r git.RepoInfo) bool { return r.Path == m.detailPath }); i >= 0 {
+				next, cmd := m.openDetail(i)
+				return next, tea.Batch(append(cmds, cmd)...)
+			}
 		}
 		return m, tea.Batch(cmds...)
 	}
