@@ -181,7 +181,7 @@ func (m model) handlePRsKey(action string) (tea.Model, tea.Cmd) {
 		m.searching = true
 		return m, nil
 
-	case keys.OpenPR:
+	case keys.ViewPR:
 		if pr, ok := m.selectedPR(); ok {
 			return m, openURLCmd(pr.URL)
 		}

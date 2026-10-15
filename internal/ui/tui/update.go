@@ -394,7 +394,7 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 	case keys.SwitchPage:
 		return m.showPRs(), nil
 
-	case keys.OpenPR:
+	case keys.ViewPR:
 		if n > 0 && filtered[m.cursor].PRUrl != "" {
 			return m, openURLCmd(filtered[m.cursor].PRUrl)
 		}
@@ -518,7 +518,7 @@ func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
 	case keys.MoveDown:
 		m.detailVP.ScrollDown(1)
 
-	case keys.OpenPR:
+	case keys.ViewPR:
 		if len(m.repos) > 0 && m.repos[m.cursor].PRUrl != "" {
 			return m, openURLCmd(m.repos[m.cursor].PRUrl)
 		}

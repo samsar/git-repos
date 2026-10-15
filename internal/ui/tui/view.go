@@ -51,7 +51,7 @@ var helpNav = []helpRow{
 
 var helpActions = []helpRow{
 	{keys.Search, "Search / filter list"},
-	{keys.OpenPR, "Open PR in browser"},
+	{keys.ViewPR, "View PR in browser"},
 	{keys.OpenGitHub, "Open repo in GitHub"},
 	{keys.Pull, "Pull repo"},
 	{keys.PullAll, "Pull all repos"},
@@ -667,13 +667,13 @@ func (m model) actionLinesFor(state viewState) []string {
 
 	var col1, col2 []act
 	if state == statePRs {
-		col1 = acts(helpRow{keys.Details, "Local repo"}, helpRow{name: keys.OpenPR}, helpRow{keys.FilterPRs, "Filter"}, helpRow{name: keys.Search}, helpRow{name: keys.OpenEditor})
+		col1 = acts(helpRow{keys.Details, "Local repo"}, helpRow{name: keys.ViewPR}, helpRow{keys.FilterPRs, "Filter"}, helpRow{name: keys.Search}, helpRow{name: keys.OpenEditor})
 		col2 = acts(helpRow{keys.SwitchPage, "Repos"}, helpRow{keys.Refresh, "Refresh PRs"}, helpRow{keys.Back, "Back"}, helpRow{name: keys.Quit}, helpRow{name: keys.Help})
 	} else if state == stateDetail {
-		col1 = acts(helpRow{keys.Back, "Back to list"}, helpRow{name: keys.OpenPR}, helpRow{name: keys.OpenGitHub}, helpRow{name: keys.Pull}, helpRow{name: keys.OpenEditor})
+		col1 = acts(helpRow{keys.Back, "Back to list"}, helpRow{name: keys.ViewPR}, helpRow{name: keys.OpenGitHub}, helpRow{name: keys.Pull}, helpRow{name: keys.OpenEditor})
 		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.Refresh}, helpRow{name: keys.Quit}, helpRow{name: keys.Help})
 	} else {
-		col1 = acts(helpRow{name: keys.Details}, helpRow{keys.SwitchPage, "PR page"}, helpRow{name: keys.Search}, helpRow{name: keys.OpenPR}, helpRow{name: keys.Pull}, helpRow{name: keys.PullAll})
+		col1 = acts(helpRow{name: keys.Details}, helpRow{keys.SwitchPage, "PR page"}, helpRow{name: keys.Search}, helpRow{name: keys.ViewPR}, helpRow{name: keys.Pull}, helpRow{name: keys.PullAll})
 		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.OpenEditor}, helpRow{name: keys.Delete}, helpRow{name: keys.Refresh}, helpRow{name: keys.Settings}, helpRow{name: keys.Help})
 	}
 

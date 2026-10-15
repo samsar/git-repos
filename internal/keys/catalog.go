@@ -20,7 +20,7 @@ var Views = []View{ViewList, ViewDetail, ViewPRs, ViewSettings, ViewHelp}
 
 // Binding is one thing a key does, with the keys it takes now and where.
 type Binding struct {
-	// Name is what config.json's keys names it by: move_down, open_pr…
+	// Name is what config.json's keys names it by: move_down, view_pr…
 	Name string `json:"name"`
 	// Label names it in words, as a conflict or a hint says it.
 	Label string `json:"label"`
@@ -50,7 +50,7 @@ const (
 	Last        = "last"
 	Details     = "details"
 	Search      = "search"
-	OpenPR      = "open_pr"
+	ViewPR      = "view_pr"
 	OpenGitHub  = "open_github"
 	Pull        = "pull"
 	PullAll     = "pull_all"
@@ -108,7 +108,7 @@ var catalog = []Binding{
 	{Name: Last, Label: "Bottom", Defaults: []string{"G", "end"}, Views: inLists},
 	{Name: Details, Label: "Detail view", Defaults: []string{"enter"}, Views: inLists},
 	{Name: Search, Label: "Search", Defaults: []string{"/"}, Views: inLists},
-	{Name: OpenPR, Label: "Open PR", Defaults: []string{"o"}, Views: onAny},
+	{Name: ViewPR, Label: "View PR", Defaults: []string{"v"}, Views: onAny},
 	{Name: OpenGitHub, Label: "Open in GitHub", Defaults: []string{"g"}, Views: inDetail},
 	{Name: Pull, Label: "Pull repo", Defaults: []string{"p"}, Views: onRepos},
 	{Name: PullAll, Label: "Pull all", Defaults: []string{"ctrl+p"}, Views: inList},
