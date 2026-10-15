@@ -9,13 +9,14 @@ type View string
 const (
 	ViewList     View = "list"
 	ViewDetail   View = "detail"
+	ViewPRs      View = "prs"
 	ViewSettings View = "settings"
 	// ViewHelp is the help (?), where you also rebind the keys.
 	ViewHelp View = "help"
 )
 
 // Views is every view a key acts in, in the order git-repos lists them.
-var Views = []View{ViewList, ViewDetail, ViewSettings, ViewHelp}
+var Views = []View{ViewList, ViewDetail, ViewPRs, ViewSettings, ViewHelp}
 
 // Binding is one thing a key does, with the keys it takes now and where.
 type Binding struct {
@@ -66,6 +67,10 @@ const (
 	SortChanges = "sort_changes"
 	SortTime    = "sort_time"
 	SortPR      = "sort_pr"
+	// SwitchPage goes between the repos and the PR page; FilterPRs, the
+	// PR page's own, shows all PRs, yours, or those asking your review.
+	SwitchPage = "switch_page"
+	FilterPRs  = "filter_prs"
 	// Toggle and Edit are the settings' own: toggle or edit the setting
 	// selected, and edit a number.
 	Toggle = "toggle"
@@ -84,8 +89,11 @@ const (
 var (
 	inList   = []View{ViewList}
 	inDetail = []View{ViewDetail}
+	inPRs    = []View{ViewPRs}
 	onRepos  = []View{ViewList, ViewDetail}
-	inAll    = []View{ViewList, ViewDetail, ViewSettings, ViewHelp}
+	inLists  = []View{ViewList, ViewPRs}
+	onAny    = []View{ViewList, ViewDetail, ViewPRs}
+	inAll    = []View{ViewList, ViewDetail, ViewPRs, ViewSettings, ViewHelp}
 	inHelp   = []View{ViewHelp}
 )
 
@@ -94,21 +102,21 @@ var (
 var catalog = []Binding{
 	{Name: MoveDown, Label: "Move down", Defaults: []string{"j", "down"}, Views: inAll},
 	{Name: MoveUp, Label: "Move up", Defaults: []string{"k", "up"}, Views: inAll},
-	{Name: PageDown, Label: "Page down", Defaults: []string{"ctrl+f"}, Views: inList},
-	{Name: PageUp, Label: "Page up", Defaults: []string{"ctrl+b"}, Views: inList},
-	{Name: First, Label: "Top", Defaults: []string{"g", "home"}, Views: inList},
-	{Name: Last, Label: "Bottom", Defaults: []string{"G", "end"}, Views: inList},
-	{Name: Details, Label: "Detail view", Defaults: []string{"enter"}, Views: inList},
-	{Name: Search, Label: "Search", Defaults: []string{"/"}, Views: inList},
-	{Name: OpenPR, Label: "Open PR", Defaults: []string{"o"}, Views: onRepos},
+	{Name: PageDown, Label: "Page down", Defaults: []string{"ctrl+f"}, Views: inLists},
+	{Name: PageUp, Label: "Page up", Defaults: []string{"ctrl+b"}, Views: inLists},
+	{Name: First, Label: "Top", Defaults: []string{"g", "home"}, Views: inLists},
+	{Name: Last, Label: "Bottom", Defaults: []string{"G", "end"}, Views: inLists},
+	{Name: Details, Label: "Detail view", Defaults: []string{"enter"}, Views: inLists},
+	{Name: Search, Label: "Search", Defaults: []string{"/"}, Views: inLists},
+	{Name: OpenPR, Label: "Open PR", Defaults: []string{"o"}, Views: onAny},
 	{Name: OpenGitHub, Label: "Open in GitHub", Defaults: []string{"g"}, Views: inDetail},
 	{Name: Pull, Label: "Pull repo", Defaults: []string{"p"}, Views: onRepos},
 	{Name: PullAll, Label: "Pull all", Defaults: []string{"ctrl+p"}, Views: inList},
 	{Name: Shell, Label: "Open shell", Defaults: []string{"s"}, Views: onRepos},
-	{Name: OpenEditor, Label: "Open in editor", Defaults: []string{"e"}, Views: onRepos},
-	{Name: PickEditor, Label: "Open in…", Defaults: []string{"E"}, Views: onRepos},
+	{Name: OpenEditor, Label: "Open in editor", Defaults: []string{"e"}, Views: onAny},
+	{Name: PickEditor, Label: "Open in…", Defaults: []string{"E"}, Views: onAny},
 	{Name: Delete, Label: "Delete repo", Defaults: []string{"ctrl+d"}, Views: inList},
-	{Name: Refresh, Label: "Refresh", Defaults: []string{"r"}, Views: onRepos},
+	{Name: Refresh, Label: "Refresh", Defaults: []string{"r"}, Views: onAny},
 	{Name: Settings, Label: "Settings", Defaults: []string{"z"}, Views: onRepos},
 	{Name: SortStatus, Label: "Sort by status", Defaults: []string{"0"}, Views: inList},
 	{Name: SortName, Label: "Sort by name", Defaults: []string{"N"}, Views: inList},
@@ -117,6 +125,8 @@ var catalog = []Binding{
 	{Name: SortChanges, Label: "Sort by changes", Defaults: []string{"C"}, Views: inList},
 	{Name: SortTime, Label: "Sort by time", Defaults: []string{"T"}, Views: inList},
 	{Name: SortPR, Label: "Sort by PR", Defaults: []string{"P"}, Views: inList},
+	{Name: SwitchPage, Label: "PRs ⇄ repos", Defaults: []string{"tab"}, Views: inLists},
+	{Name: FilterPRs, Label: "Filter PRs", Defaults: []string{"f"}, Views: inPRs},
 	{Name: Toggle, Label: "Toggle / Edit", Defaults: []string{"enter", "space"}, Views: []View{ViewSettings}},
 	{Name: Edit, Label: "Edit", Defaults: []string{"e"}, Views: []View{ViewSettings}},
 	{Name: Back, Label: "Back", Views: inAll},

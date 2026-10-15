@@ -45,6 +45,8 @@ var helpNav = []helpRow{
 	{keys.Last, "Bottom"},
 	{keys.Details, "Detail view"},
 	{keys.Back, "Back / Close"},
+	{keys.SwitchPage, "Repos ⇄ PR page"},
+	{keys.FilterPRs, "Filter the PR page"},
 }
 
 var helpActions = []helpRow{
@@ -132,6 +134,9 @@ func (m model) windowTitle() string {
 	if m.state == stateDetail && m.cursor < len(m.repos) {
 		return "git-repos: " + m.repos[m.cursor].Name
 	}
+	if m.state == statePRs {
+		return "git-repos: PRs"
+	}
 	return "git-repos"
 }
 
@@ -156,6 +161,8 @@ func (m model) viewContent() string {
 		return m.viewDetail()
 	case stateSettings:
 		return m.viewSettings()
+	case statePRs:
+		return m.viewPRs()
 	}
 	return ""
 }
@@ -659,11 +666,14 @@ func (m model) actionLinesFor(state viewState) []string {
 	}
 
 	var col1, col2 []act
-	if state == stateDetail {
+	if state == statePRs {
+		col1 = acts(helpRow{keys.Details, "Local repo"}, helpRow{name: keys.OpenPR}, helpRow{keys.FilterPRs, "Filter"}, helpRow{name: keys.Search}, helpRow{name: keys.OpenEditor})
+		col2 = acts(helpRow{keys.SwitchPage, "Repos"}, helpRow{keys.Refresh, "Refresh PRs"}, helpRow{keys.Back, "Back"}, helpRow{name: keys.Quit}, helpRow{name: keys.Help})
+	} else if state == stateDetail {
 		col1 = acts(helpRow{keys.Back, "Back to list"}, helpRow{name: keys.OpenPR}, helpRow{name: keys.OpenGitHub}, helpRow{name: keys.Pull}, helpRow{name: keys.OpenEditor})
 		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.Refresh}, helpRow{name: keys.Quit}, helpRow{name: keys.Help})
 	} else {
-		col1 = acts(helpRow{name: keys.Details}, helpRow{name: keys.Search}, helpRow{name: keys.OpenPR}, helpRow{name: keys.Pull}, helpRow{name: keys.PullAll})
+		col1 = acts(helpRow{name: keys.Details}, helpRow{keys.SwitchPage, "PR page"}, helpRow{name: keys.Search}, helpRow{name: keys.OpenPR}, helpRow{name: keys.Pull}, helpRow{name: keys.PullAll})
 		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.OpenEditor}, helpRow{name: keys.Delete}, helpRow{name: keys.Refresh}, helpRow{name: keys.Settings}, helpRow{name: keys.Help})
 	}
 

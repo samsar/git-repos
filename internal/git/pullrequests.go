@@ -230,3 +230,23 @@ func FetchAndMatchPRs(repos []RepoInfo) (PRs, error) {
 	MatchPRs(repos, prs)
 	return prs, nil
 }
+
+// LocalFor is the index in repos of the clone pr's code is in: a repo
+// with the repo it merges into, or comes from, as a remote; one with its
+// branch checked out first. False for none.
+func LocalFor(pr PullRequest, repos []RepoInfo) (int, bool) {
+	found := -1
+	for i, r := range repos {
+		keys := repoKeys(r)
+		if !slices.Contains(keys, pr.Repo) && !slices.Contains(keys, pr.HeadRepo) {
+			continue
+		}
+		if r.Branch == pr.Branch {
+			return i, true
+		}
+		if found < 0 {
+			found = i
+		}
+	}
+	return found, found >= 0
+}

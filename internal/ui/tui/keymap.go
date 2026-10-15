@@ -110,6 +110,8 @@ func (m model) keyView() keys.View {
 		return keys.ViewDetail
 	case stateSettings:
 		return keys.ViewSettings
+	case statePRs:
+		return keys.ViewPRs
 	}
 	return keys.ViewList
 }

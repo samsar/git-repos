@@ -45,10 +45,10 @@ func yours(t *testing.T, given map[string][]string) model {
 
 // Your keys act in place of the defaults, which then do nothing.
 func TestYourKeysAct(t *testing.T) {
-	m := yours(t, map[string][]string{keys.Search: {"f"}, keys.Details: {"l"}})
+	m := yours(t, map[string][]string{keys.Search: {"F"}, keys.Details: {"l"}})
 
-	if !press(m, "f").searching {
-		t.Error("f doesn't search")
+	if !press(m, "F").searching {
+		t.Error("F doesn't search")
 	}
 	if press(m, "/").searching {
 		t.Error("/ still searches")
@@ -67,10 +67,10 @@ func TestYourKeysAct(t *testing.T) {
 
 // The header's hints, the help and the search's hint show your keys.
 func TestHintsShowYourKeys(t *testing.T) {
-	m := yours(t, map[string][]string{keys.Search: {"f"}, keys.PullAll: {}})
+	m := yours(t, map[string][]string{keys.Search: {"F"}, keys.PullAll: {}})
 
 	header := strings.Join(strings.Fields(plain(strings.Join(m.actionLines(), " "))), " ")
-	if !strings.Contains(header, "<f> Search") || strings.Contains(header, "</>") {
+	if !strings.Contains(header, "<F> Search") || strings.Contains(header, "</>") {
 		t.Errorf("header hints:\n%s", header)
 	}
 	if strings.Contains(header, "Pull all") {
@@ -79,14 +79,14 @@ func TestHintsShowYourKeys(t *testing.T) {
 
 	m.showHelp = true
 	help := plain(m.View().Content)
-	if !strings.Contains(help, "<f>") || !strings.Contains(help, "<–>") {
+	if !strings.Contains(help, "<F>") || !strings.Contains(help, "<–>") {
 		t.Errorf("help doesn't show f for search and – for pull all:\n%s", help)
 	}
 
 	m.showHelp = false
-	m = press(press(m, "f"), "x")
+	m = press(press(m, "F"), "x")
 	m = press(m, "enter")
-	if bar := plain(m.renderStatusBar()); !strings.Contains(bar, "(f to edit") {
+	if bar := plain(m.renderStatusBar()); !strings.Contains(bar, "(F to edit") {
 		t.Errorf("status bar: %q", bar)
 	}
 }

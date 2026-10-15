@@ -93,6 +93,7 @@ git repos config reset
 | `g` / `G` or Home/End | Jump to top/bottom    |
 | `Ctrl+f` / `Ctrl+b`   | Page down/up          |
 | `Enter`               | Open repo detail view |
+| `Tab`                 | Switch to the PR page |
 | `Esc`                 | Back to list          |
 
 ### Actions
@@ -145,6 +146,12 @@ git repos keys check    # check config.json's keys: unknown names, keys bound tw
 ```
 
 If config.json's keys have a problem, the TUI uses the default keys and says so in its status bar.
+
+## PR page
+
+`Tab` switches between your repos and a page of every open PR on your GitHub account: yours, and those asking for your review, each in a section of its own, both at once. `f` shows only yours, only those asking for your review, or both again. Each PR shows its checks, its review decision, when it was last updated, and whether you have it cloned (`cloned`) or checked out (`✓ here`) in the directories git-repos scans. Its status icon reads like the repos': `!` checks failing or changes requested, `↑` checks running or a review to come, `✓` ready, `·` draft.
+
+`Enter` opens the PR's local clone in the detail view (`Esc` comes back), `o` opens the PR in your browser, `e`/`E` open its clone in your editor, `/` searches by repo, number, title, branch or author, and `r` looks them up again. The PRs come from one GitHub query through `gh`, the same one that fills the repo list's PR column, which shows a PR, yours or asking for your review, for the branch each repo has checked out.
 
 ## Opening a repo in your editor
 

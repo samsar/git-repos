@@ -42,8 +42,8 @@ func TestResolve(t *testing.T) {
 		errs    []string
 	}{
 		{name: "nothing", want: map[string]string{Search: "/", MoveDown: "j down"}},
-		{name: "yours", entries: []Entry{entry(Search, "f"), entry(Delete, "ctrl+X"), entry(MoveDown, "j", "x")},
-			want: map[string]string{Search: "f", Delete: "ctrl+x", MoveDown: "j x"}, yours: []string{Delete, MoveDown, Search}},
+		{name: "yours", entries: []Entry{entry(Search, "F"), entry(Delete, "ctrl+X"), entry(MoveDown, "j", "x")},
+			want: map[string]string{Search: "F", Delete: "ctrl+x", MoveDown: "j x"}, yours: []string{Delete, MoveDown, Search}},
 		{name: "none", entries: []Entry{entry(PullAll)}, want: map[string]string{PullAll: ""}, yours: []string{PullAll}},
 		{name: "the defaults again", entries: []Entry{entry(Search, "/")}, want: map[string]string{Search: "/"}},
 		{name: "a reserved key its binding always has", entries: []Entry{entry(Back, "esc", "h"), entry(Quit, "Q", "ctrl+c")},
@@ -104,11 +104,11 @@ func TestResolve(t *testing.T) {
 // FromConfig takes config.json's keys over the defaults, its problems in
 // the order of their names, and the defaults alone when it has any.
 func TestFromConfig(t *testing.T) {
-	got, problems := FromConfig(map[string][]string{Search: {"f"}})
-	if b, _ := find(got, Search); len(problems) > 0 || !slices.Equal(b.Keys, []string{"f"}) || !b.Yours {
+	got, problems := FromConfig(map[string][]string{Search: {"F"}})
+	if b, _ := find(got, Search); len(problems) > 0 || !slices.Equal(b.Keys, []string{"F"}) || !b.Yours {
 		t.Errorf("search %+v, problems %q", b, problems)
 	}
-	got, problems = FromConfig(map[string][]string{Search: {"f"}, "zz": {"x"}, "aa": {"y"}})
+	got, problems = FromConfig(map[string][]string{Search: {"F"}, "zz": {"x"}, "aa": {"y"}})
 	if len(problems) != 2 || !strings.Contains(problems[0], `"aa"`) || !strings.Contains(problems[1], `"zz"`) {
 		t.Errorf("problems %q", problems)
 	}
@@ -130,7 +130,7 @@ func TestRebinding(t *testing.T) {
 		other              string
 		err                string
 	}{
-		{name: "free", binding: Search, key: "f", set: map[string]string{Search: "f"}},
+		{name: "free", binding: Search, key: "F", set: map[string]string{Search: "F"}},
 		{name: "keeps the rest", binding: MoveDown, key: "x", set: map[string]string{MoveDown: "x down"}},
 		{name: "a key it has after its first", binding: MoveDown, key: "down", set: map[string]string{MoveDown: "down"}},
 		{name: "a swap", binding: Pull, key: "s", set: map[string]string{Pull: "s", Shell: "p"}, other: Shell},
@@ -191,7 +191,7 @@ func TestResetting(t *testing.T) {
 		reset         []string
 		key, err      string
 	}{
-		{name: "alone", binding: Search, set: map[string][]string{Search: {"f"}}, reset: []string{Search}},
+		{name: "alone", binding: Search, set: map[string][]string{Search: {"F"}}, reset: []string{Search}},
 		{name: "at its defaults", binding: Search, reset: []string{Search}},
 		{name: "a swap, undone", binding: Pull, set: map[string][]string{Pull: {"s"}, Shell: {"p"}},
 			reset: []string{Pull, Shell}, key: "p"},
@@ -252,7 +252,7 @@ func TestFree(t *testing.T) {
 			t.Errorf("%q free in the list", k)
 		}
 	}
-	for _, k := range []string{"f", "x", "tab", "ctrl+e"} {
+	for _, k := range []string{"f", "x", "F", "ctrl+e"} {
 		if !slices.Contains(list, k) {
 			t.Errorf("%q isn't free in the list", k)
 		}
@@ -270,7 +270,8 @@ func TestConflictsAcrossViews(t *testing.T) {
 	for _, x := range c {
 		said = append(said, x.String())
 	}
-	want := []string{"x is Detail view, Search and Pull repo in the list", "x is both Open in GitHub and Pull repo in the detail view"}
+	want := []string{"x is Detail view, Search and Pull repo in the list", "x is both Open in GitHub and Pull repo in the detail view",
+		"x is both Detail view and Search on the PR page"}
 	if !slices.Equal(said, want) {
 		t.Errorf("conflicts %q, want %q", said, want)
 	}

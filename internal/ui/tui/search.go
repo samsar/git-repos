@@ -86,23 +86,31 @@ func (m model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.searching = false
 		m.searchQuery = ""
-		m.cursor = 0
-		m.offset = 0
+		m = m.searchChanged()
 	case "enter":
 		m.searching = false
 	case "backspace", "ctrl+h":
 		if len(m.searchQuery) > 0 {
 			r := []rune(m.searchQuery)
 			m.searchQuery = string(r[:len(r)-1])
-			m.cursor = 0
-			m.offset = 0
+			m = m.searchChanged()
 		}
 	default:
 		if msg.Text != "" {
 			m.searchQuery += msg.Text
-			m.cursor = 0
-			m.offset = 0
+			m = m.searchChanged()
 		}
 	}
 	return m, nil
+}
+
+// searchChanged puts the cursor of the page searched back at its top, as
+// the search changes what it shows.
+func (m model) searchChanged() model {
+	if m.state == statePRs {
+		m.prCursor, m.prOffset = 0, 0
+		return m
+	}
+	m.cursor, m.offset = 0, 0
+	return m
 }

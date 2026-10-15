@@ -324,6 +324,8 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleDetailKey(action)
 	case stateSettings:
 		return m.handleSettingsKey(action)
+	case statePRs:
+		return m.handlePRsKey(action)
 	}
 	return m, nil
 }
@@ -386,22 +388,11 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Translate filtered cursor → full m.repos index for detail view.
-		m.cursor = m.filteredToFullIdx(m.cursor)
-		m.state = stateDetail
-		m.commitsLoaded = false
-		m.detailCommits = nil
-		m.behindLoaded = false
-		m.behindCommits = nil
-		m.detailVP = viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(m.detailVPHeight()))
-		m.detailVP.Style = lipgloss.NewStyle().Background(rowBg)
-		m.detailVP.SetContent(m.renderDetailContent())
-		cmds := []tea.Cmd{loadCommitsCmd(m.repos[m.cursor].Path)}
-		if m.repos[m.cursor].Behind > 0 {
-			cmds = append(cmds, loadBehindCommitsCmd(m.repos[m.cursor].Path))
-		} else {
-			m.behindLoaded = true
-		}
-		return m, tea.Batch(cmds...)
+		m.detailFrom = stateList
+		return m.openDetail(m.filteredToFullIdx(m.cursor))
+
+	case keys.SwitchPage:
+		return m.showPRs(), nil
 
 	case keys.OpenPR:
 		if n > 0 && filtered[m.cursor].PRUrl != "" {
@@ -477,6 +468,26 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// openDetail shows the detail view of m.repos[i], loading its commits.
+func (m model) openDetail(i int) (tea.Model, tea.Cmd) {
+	m.cursor = i
+	m.state = stateDetail
+	m.commitsLoaded = false
+	m.detailCommits = nil
+	m.behindLoaded = false
+	m.behindCommits = nil
+	m.detailVP = viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(m.detailVPHeight()))
+	m.detailVP.Style = lipgloss.NewStyle().Background(rowBg)
+	m.detailVP.SetContent(m.renderDetailContent())
+	cmds := []tea.Cmd{loadCommitsCmd(m.repos[m.cursor].Path)}
+	if m.repos[m.cursor].Behind > 0 {
+		cmds = append(cmds, loadBehindCommitsCmd(m.repos[m.cursor].Path))
+	} else {
+		m.behindLoaded = true
+	}
+	return m, tea.Batch(cmds...)
+}
+
 func (m model) applySort(col git.SortColumn) model {
 	if m.sortCol == col {
 		m.sortDesc = !m.sortDesc
@@ -491,7 +502,12 @@ func (m model) applySort(col git.SortColumn) model {
 func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case keys.Back:
-		// Translate full m.repos cursor back to filtered-list cursor.
+		// Back to the PR page it was opened from, its list cursor put back;
+		// else translate full m.repos cursor back to filtered-list cursor.
+		if m.detailFrom == statePRs {
+			m.state, m.cursor, m.detailFrom = statePRs, m.listCursor, stateList
+			return m, nil
+		}
 		m.cursor = m.fullToFilteredIdx(m.cursor)
 		m.state = stateList
 		return m, nil

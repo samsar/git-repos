@@ -30,6 +30,7 @@ const (
 	stateList
 	stateDetail
 	stateSettings
+	statePRs
 )
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -204,6 +205,15 @@ type model struct {
 	fetchingPR    bool
 	refreshing    bool
 	refreshRepos  []git.RepoInfo
+
+	// PR page
+	prCursor int // in displayPRs()
+	prOffset int // in prLines()
+	prFilter prFilter
+	// detailFrom is the page the detail view goes back to: the list, or
+	// the PR page, when listCursor is the list's cursor to put back.
+	detailFrom viewState
+	listCursor int
 
 	// search
 	searching   bool

@@ -90,3 +90,23 @@ func TestMatchPRs(t *testing.T) {
 		}
 	}
 }
+
+// A PR's local clone is one with its repo as a remote, the one with its
+// branch checked out first.
+func TestLocalFor(t *testing.T) {
+	pr := PullRequest{Repo: "acme/api", HeadRepo: "me/api", Branch: "feature/auth"}
+	repos := []RepoInfo{
+		{Name: "web", RemoteURL: "git@github.com:acme/web.git", Branch: "feature/auth"},
+		{Name: "api-main", RemoteURL: "git@github.com:acme/api.git", Branch: "main"},
+		{Name: "api-fork", RemoteURL: "git@github.com:me/api.git", Branch: "feature/auth"},
+	}
+	if i, ok := LocalFor(pr, repos); !ok || i != 2 {
+		t.Errorf("LocalFor = %d, %v; want the fork with the branch", i, ok)
+	}
+	if i, ok := LocalFor(pr, repos[:2]); !ok || i != 1 {
+		t.Errorf("LocalFor = %d, %v; want the clone on main", i, ok)
+	}
+	if _, ok := LocalFor(pr, repos[:1]); ok {
+		t.Error("found a clone of another repo")
+	}
+}

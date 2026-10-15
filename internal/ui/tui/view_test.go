@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -79,6 +81,16 @@ func TestViewsFillTerminal(t *testing.T) {
 			m.showDeleteConfirm = true
 			return m
 		},
+		"prs page":          func() model { return prsPage(base()) },
+		"prs page narrow":   func() model { return resize(prsPage(base()), 90, 30) },
+		"prs page filtered": func() model { m := prsPage(base()); m.prFilter = prsReview; return m },
+		"prs page loading":  func() model { m := prsPage(base()); m.prsLoading = true; return m },
+		"prs page error": func() model {
+			m := prsPage(base())
+			m.prsErr = errors.New("gh api graphql: HTTP 502: Bad Gateway, which is a long error to see in the header")
+			return m
+		},
+		"prs page empty": func() model { m := prsPage(base()); m.prs = git.PRs{}; return m },
 		"list editor picker": func() model {
 			m := base()
 			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
@@ -174,6 +186,21 @@ func TestVersionPaddedFromBorder(t *testing.T) {
 			}
 		}
 	}
+}
+
+// prsPage is m on the PR page, with PRs of each kind, one with a title
+// longer than any terminal is wide.
+func prsPage(m model) model {
+	m.state, m.prsEverLoaded = statePRs, true
+	m.prs = git.PRs{
+		Mine: []git.PullRequest{
+			{Repo: "catio-tech/catio-harness", Number: 263, Title: strings.Repeat("a title longer than the terminal is wide ", 4), Branch: "fix/drain-handoff", Checks: "FAILURE", UpdatedAt: time.Now().Add(-time.Hour)},
+			{Repo: "me/side", Number: 7, Title: "wip", Draft: true, UpdatedAt: time.Now().Add(-100 * time.Hour)},
+		},
+		ReviewRequested: []git.PullRequest{{Repo: "catio-tech/a-repo-with-a-very-long-name-indeed", Number: 1234, Title: "review me", Author: "someone-with-a-long-login", Review: "APPROVED", Checks: "SUCCESS"}},
+		MineTotal:       2, ReviewTotal: 1,
+	}
+	return m
 }
 
 // resize sends the model a w×h terminal size, as a terminal resize would.

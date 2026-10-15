@@ -25,6 +25,14 @@ type editorOpenedMsg struct {
 // selectedRepo is the repo the keys act on: the one under the cursor in
 // the list, or the one the detail view shows.
 func (m model) selectedRepo() (git.RepoInfo, bool) {
+	if m.state == statePRs {
+		if pr, ok := m.selectedPR(); ok {
+			if i, ok := m.localRepo(pr); ok {
+				return m.repos[i], true
+			}
+		}
+		return git.RepoInfo{}, false
+	}
 	if m.state == stateDetail {
 		if m.cursor < len(m.repos) {
 			return m.repos[m.cursor], true
@@ -48,6 +56,9 @@ func (m model) theDefaultEditor() (launch.Editor, bool) {
 func (m model) openInDefault() (tea.Model, tea.Cmd) {
 	r, ok := m.selectedRepo()
 	if !ok {
+		if pr, isPR := m.selectedPR(); isPR && m.state == statePRs {
+			m.statusMsg = pr.Repo + " isn't cloned in the directories git-repos scans"
+		}
 		return m, nil
 	}
 	e, ok := m.theDefaultEditor()
@@ -108,6 +119,9 @@ func (m model) onEditorOpened(msg editorOpenedMsg) model {
 // openPicker shows the editors to pick from, the default selected.
 func (m model) openPicker() model {
 	if _, ok := m.selectedRepo(); !ok {
+		if pr, isPR := m.selectedPR(); isPR && m.state == statePRs {
+			m.statusMsg = pr.Repo + " isn't cloned in the directories git-repos scans"
+		}
 		return m
 	}
 	m.showPicker, m.pickerCursor = true, 0

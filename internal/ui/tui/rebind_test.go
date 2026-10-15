@@ -43,16 +43,16 @@ func TestRebindFreeKey(t *testing.T) {
 	if m.help.stage != recording {
 		t.Fatal("r doesn't wait for the new key")
 	}
-	m = press(m, "f")
-	if m.help.stage != browsing || m.help.note != "Search is f now, saved in config.json" {
+	m = press(m, "F")
+	if m.help.stage != browsing || m.help.note != "Search is F now, saved in config.json" {
 		t.Errorf("stage %d, note %q", m.help.stage, m.help.note)
 	}
-	if got := yourKeysOnDisk(t); len(got) != 1 || !slices.Equal(got[keys.Search], config.KeyList{"f"}) {
+	if got := yourKeysOnDisk(t); len(got) != 1 || !slices.Equal(got[keys.Search], config.KeyList{"F"}) {
 		t.Errorf("saved %v", got)
 	}
 	m = press(m, "esc")
-	if m.showHelp || !press(m, "f").searching {
-		t.Error("f doesn't search after the help closes")
+	if m.showHelp || !press(m, "F").searching {
+		t.Error("F doesn't search after the help closes")
 	}
 }
 
@@ -119,11 +119,11 @@ func TestNoRebindWithProblems(t *testing.T) {
 // Saving the settings keeps config.json's keys.
 func TestSaveSettingsKeepsKeys(t *testing.T) {
 	m := helpOn(t, yours(t, nil), keys.Search)
-	m = press(press(m, "r"), "f")
+	m = press(press(m, "r"), "F")
 	m.bootFetch = true
 	m.saveConfig()
 	cfg, _ := config.Load()
-	if !cfg.BootFetch || !slices.Equal(cfg.Keys[keys.Search], config.KeyList{"f"}) {
+	if !cfg.BootFetch || !slices.Equal(cfg.Keys[keys.Search], config.KeyList{"F"}) {
 		t.Errorf("saved %+v", cfg)
 	}
 }

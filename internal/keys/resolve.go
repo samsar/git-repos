@@ -193,6 +193,8 @@ func ViewWords(v View) string {
 		return "in the list"
 	case ViewDetail:
 		return "in the detail view"
+	case ViewPRs:
+		return "on the PR page"
 	case ViewSettings:
 		return "in settings"
 	case ViewHelp:
