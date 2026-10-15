@@ -1173,7 +1173,7 @@ func (m model) viewSettings() string {
 	blank := fill.Width(m.width).Render("") + "\n"
 
 	// Top bar
-	right := kStyle.Render("<esc>") + dStyle.Render(" Save & Back ")
+	right := kStyle.Render("esc") + dStyle.Render(" Save & Back ")
 	gapW := max(1, m.width-lipgloss.Width(right))
 	b.WriteString(fill.Width(gapW).Render("") + right + "\n")
 
@@ -1276,9 +1276,13 @@ func (m model) viewSettings() string {
 		boldBg.Render(keysLabel) +
 		sepStyle.Render(strings.Repeat("─", m.width-kw-len(keysLabel))) + "\n")
 	b.WriteString(blank)
-	settingsKeys := m.helpEntries([]helpRow{{name: keys.Toggle}, {keys.Back, "Save & back"}})
+	// Without the help's brackets, a comma keeps several keys apart.
+	settingsKeys := []helpEntry{
+		{key: m.keys.capsJoined(keys.Toggle, ", "), desc: m.keys.label(keys.Toggle)},
+		{key: m.keys.capsJoined(keys.Back, ", "), desc: "Save & back"},
+	}
 	for _, sk := range settingsKeys {
-		keyStr := kStyle.Render("<" + sk.key + ">")
+		keyStr := kStyle.Render(sk.key)
 		pad := max(0, 18-lipgloss.Width(keyStr))
 		b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+keyStr+fill.Render(strings.Repeat(" ", pad))+dStyle.Render(sk.desc)) + "\n")
 	}

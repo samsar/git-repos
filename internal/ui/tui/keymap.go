@@ -78,7 +78,11 @@ func (k keymap) first(name string) string {
 
 // caps is every key of binding name, as the help shows them; "–" for
 // none.
-func (k keymap) caps(name string) string {
+func (k keymap) caps(name string) string { return k.capsJoined(name, " ") }
+
+// capsJoined is every key of binding name, as the help shows them, with
+// sep between them; "–" for none.
+func (k keymap) capsJoined(name, sep string) string {
 	ks := k.keysOf(name)
 	if len(ks) == 0 {
 		return "–"
@@ -87,7 +91,7 @@ func (k keymap) caps(name string) string {
 	for i, key := range ks {
 		out[i] = keyCap(key)
 	}
-	return strings.Join(out, " ")
+	return strings.Join(out, sep)
 }
 
 // keyCap is key as the TUI shows it: an arrow for the arrow keys, its
