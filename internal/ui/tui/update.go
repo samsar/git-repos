@@ -263,8 +263,6 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// question, and 1 to 9 pick an editor. Quit quits from any other key.
 	if m.showDeleteConfirm && !m.showHelp {
 		switch {
-		case action == keys.Help: // the help over it, as before it
-			return m.openHelp(), nil
 		case key == "y" || key == "enter":
 			filtered := m.displayRepos()
 			if len(filtered) > 0 && m.cursor < len(filtered) {
@@ -273,6 +271,8 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.statusMsg = "deleting " + repo.Name + "…"
 				return m, tea.Batch(m.spinner.Tick, deleteRepoDirCmd(repo))
 			}
+		case action == keys.Help: // the help over it, as before it
+			return m.openHelp(), nil
 		case action == keys.Quit:
 			return m, tea.Quit
 		}

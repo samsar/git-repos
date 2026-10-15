@@ -124,6 +124,11 @@ func TestPromptsTakeTheirKeys(t *testing.T) {
 	if _, quit := cmd().(tea.QuitMsg); quit {
 		t.Error("y quit instead of confirming the delete")
 	}
+	m = yours(t, map[string][]string{keys.Help: {"y"}})
+	m.showDeleteConfirm = true
+	if m = press(m, "y"); m.showHelp || m.showDeleteConfirm || !strings.HasPrefix(m.statusMsg, "deleting ") {
+		t.Errorf("with help on y, y: help %v, confirm %v, status %q", m.showHelp, m.showDeleteConfirm, m.statusMsg)
+	}
 
 	m = helpOn(t, yours(t, map[string][]string{keys.Quit: {"y"}}), keys.Pull)
 	m = press(press(m, "r"), "s")
