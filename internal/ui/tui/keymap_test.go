@@ -78,9 +78,9 @@ func TestHintsShowYourKeys(t *testing.T) {
 	}
 
 	m.showHelp = true
-	help := plain(m.View().Content)
-	if !strings.Contains(help, "<F>") || !strings.Contains(help, "<–>") {
-		t.Errorf("help doesn't show f for search and – for pull all:\n%s", help)
+	help := strings.Join(strings.Fields(plain(m.View().Content)), " ")
+	if !strings.Contains(help, "F Search / filter list") || !strings.Contains(help, "– Pull all repos") || strings.Contains(help, "<") {
+		t.Errorf("help doesn't show F for search and – for pull all, without brackets:\n%s", help)
 	}
 
 	m.showHelp = false

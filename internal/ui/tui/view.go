@@ -89,9 +89,9 @@ func (m model) helpEntries(rows []helpRow) []helpEntry {
 		case r.name == "":
 			out[i] = helpEntry{"", r.does, ""}
 		case r.does == "":
-			out[i] = helpEntry{m.keys.caps(r.name), m.keys.label(r.name), r.name}
+			out[i] = helpEntry{m.keys.capsJoined(r.name, ", "), m.keys.label(r.name), r.name}
 		default:
-			out[i] = helpEntry{m.keys.caps(r.name), r.does, r.name}
+			out[i] = helpEntry{m.keys.capsJoined(r.name, ", "), r.does, r.name}
 		}
 	}
 	return out
@@ -297,7 +297,7 @@ func (m model) viewHelp() string {
 		if b, ok := m.keys.binding(e.name); ok && b.Yours {
 			ks = yoursStyle
 		}
-		k := ks.Render("<" + e.key + ">")
+		k := ks.Render(e.key)
 		kw := lipgloss.Width(k)
 		pad := max(0, 16-kw)
 		mark, ds := fill.Render(" "), dStyle
@@ -318,12 +318,12 @@ func (m model) viewHelp() string {
 	if m.help.stage == browsing {
 		for _, h := range []helpRow{{keys.Rebind, "Rebind"}, {keys.Reset, "Reset"}} {
 			if k := m.keys.first(h.name); k != "" {
-				right += kStyle.Render("<"+k+">") + dStyle.Render(" "+h.does+"  ")
+				right += kStyle.Render(k) + dStyle.Render(" "+h.does+"  ")
 			}
 		}
-		right += kStyle.Render("<esc>") + dStyle.Render(" Back ")
+		right += kStyle.Render("esc") + dStyle.Render(" Back ")
 	} else {
-		right = kStyle.Render("<esc>") + dStyle.Render(" Cancel ")
+		right = kStyle.Render("esc") + dStyle.Render(" Cancel ")
 	}
 	left, leftStyle := "", noteStyle
 	switch {
