@@ -167,3 +167,107 @@ func TestRelTime(t *testing.T) {
 		}
 	}
 }
+
+// The PR page's search is its own: a search there, then a PR's detail
+// view, the settings and back, leaves the repos unsearched and every key
+// safe, the settings going back to the detail view they were opened from.
+func TestPRSearchStaysOnThePRPage(t *testing.T) {
+	m := press(withPRs(t), "tab")
+	m = press(m, "/")
+	for _, k := range []string{"f", "i", "x"} {
+		m = press(m, k)
+	}
+	m = press(press(m, "enter"), "enter")
+	if m.state != stateDetail {
+		t.Fatalf("state %d, want the detail view", m.state)
+	}
+	m = press(press(m, "z"), "esc")
+	if m.state != stateDetail {
+		t.Fatalf("settings went back to state %d, not the detail view", m.state)
+	}
+	m = press(press(m, "esc"), "tab")
+	if m.state != stateList || m.searchQuery != "" || len(m.displayRepos()) != 2 {
+		t.Fatalf("the repos: state %d, search %q, %d shown", m.state, m.searchQuery, len(m.displayRepos()))
+	}
+	for _, k := range []string{"v", "p", "s", "e"} {
+		press(m, k) // none may panic
+	}
+	if m = press(press(m, "tab"), "tab"); m.prQuery != "fix" {
+		t.Errorf("the PR page's search is %q after going round, want fix", m.prQuery)
+	}
+}
+
+// The repos' cursor, kept while a PR's detail view is open, stays on a
+// repo when repos go meanwhile; and the list's keys keep it on one.
+func TestListCursorStaysOnARepo(t *testing.T) {
+	m := withPRs(t)
+	m.cursor = 1
+	m = press(press(m, "tab"), "enter")
+	m.repos = m.repos[:1] // one went while the detail view was open
+	m.cursor = 0
+	m = press(press(m, "esc"), "tab")
+	if m.cursor != 0 {
+		t.Errorf("cursor %d with 1 repo", m.cursor)
+	}
+	press(m, "enter") // may not panic
+
+	m = withPRs(t)
+	m.cursor = 5
+	for _, k := range []string{"v", "p", "s", "enter"} {
+		press(m, k) // none may panic
+	}
+}
+
+// A pull or refresh keeps a repo's PR, one asking for your review too,
+// from the PRs already looked up.
+func TestRefreshKeepsReviewRequestedPR(t *testing.T) {
+	m := withPRs(t)
+	web := m.repos[0]
+	web.Branch = "feature/dash" // the review-requested PR's branch
+	m.repos[0] = web
+	m = m.matchPRs()
+	fresh := web
+	fresh.PRNumber, fresh.PRUrl = 0, "" // as git collects it
+	next, _ := m.Update(fetchDoneMsg(fresh))
+	m = next.(model)
+	for _, r := range m.repos {
+		if r.Name == "web" && r.PRNumber != 38 {
+			t.Errorf("web's PR after a pull: #%d, want #38", r.PRNumber)
+		}
+	}
+}
+
+// PRs looked up again keep the PR page's cursor on a PR, and the detail
+// view on its repo, however they re-sort the repos.
+func TestPRsLoadedKeepCursors(t *testing.T) {
+	m := press(withPRs(t), "tab")
+	m = press(press(m, "j"), "j")
+	if m.prCursor != 2 {
+		t.Fatalf("prCursor %d", m.prCursor)
+	}
+	one := git.PRs{ReviewRequested: m.prs.ReviewRequested, ReviewTotal: 1}
+	next, _ := m.Update(prsLoadedMsg{prs: one})
+	m = next.(model)
+	if pr, ok := m.selectedPR(); !ok || pr.Number != 38 {
+		t.Errorf("selected %v, %v after the reload; want #38", pr.Number, ok)
+	}
+
+	m = withPRs(t)
+	m.sortCol = git.SortPR
+	m, _ = mustOpenDetail(m, "web")
+	next, _ = m.Update(prsLoadedMsg{prs: m.prs})
+	if m = next.(model); m.repos[m.cursor].Name != "web" {
+		t.Errorf("the detail view shows %s after the reload, want web", m.repos[m.cursor].Name)
+	}
+}
+
+// mustOpenDetail opens the detail view of the repo named name.
+func mustOpenDetail(m model, name string) (model, bool) {
+	for i, r := range m.repos {
+		if r.Name == name {
+			next, _ := m.openDetail(i)
+			return next.(model), true
+		}
+	}
+	return m, false
+}

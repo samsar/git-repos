@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/launch"
@@ -143,16 +144,18 @@ func (m model) openPicker() model {
 func (m model) handlePickerKey(action, key string) (tea.Model, tea.Cmd) {
 	pick := -1
 	switch {
+	case len(key) == 1 && key[0] >= '1' && key[0] <= '9':
+		pick = int(key[0] - '1')
+	case key == "enter":
+		pick = m.pickerCursor
 	case action == keys.MoveDown:
 		m.pickerCursor = min(m.pickerCursor+1, len(m.editors)-1)
 	case action == keys.MoveUp:
 		m.pickerCursor = max(m.pickerCursor-1, 0)
-	case key == "enter":
-		pick = m.pickerCursor
 	case action == keys.Back:
 		m.showPicker = false
-	case len(key) == 1 && key[0] >= '1' && key[0] <= '9':
-		pick = int(key[0] - '1')
+	case action == keys.Quit:
+		return m, tea.Quit
 	}
 	if pick < 0 || pick >= len(m.editors) {
 		return m, nil
@@ -200,7 +203,15 @@ func (m model) viewPicker(headerLines []string) string {
 		nameW = max(nameW, lipgloss.Width(e.Name))
 	}
 	lines := []string{"", titleS.Render("  Open " + r.Name + " in…"), ""}
+	// The editors the screen has room for, around the one selected:
+	// all but the header, its line, these lines and the status bar.
+	room := max(1, m.height-m.headerHeight()-1-6-1)
+	first := max(0, min(m.pickerCursor-room+1, len(m.editors)-room))
+	first = min(first, m.pickerCursor)
 	for i, e := range m.editors {
+		if i < first || i >= first+room {
+			continue
+		}
 		num := "   "
 		if i < 9 {
 			num = strconv.Itoa(i+1) + "  "
@@ -219,7 +230,7 @@ func (m model) viewPicker(headerLines []string) string {
 		greyS.Render("  ")+cyanS.Render("<1-9>")+greyS.Render(" Open   ")+cyanS.Render("<enter>")+greyS.Render(" Open selected   ")+cyanS.Render("<esc>")+greyS.Render(" Cancel"),
 		"")
 	for _, line := range lines {
-		b.WriteString(fill.Width(m.width).Render(line) + "\n")
+		b.WriteString(fill.Width(m.width).Render(ansi.Truncate(line, m.width, "…")) + "\n")
 	}
 
 	written := m.headerHeight() + 1 + len(lines)

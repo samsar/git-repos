@@ -251,15 +251,12 @@ func saveYourKeys(bindings []keys.Binding) error {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
-	cfg.Keys = nil
+	yours := map[string][]string{}
 	for _, b := range bindings {
-		if !b.Yours {
-			continue
+		if b.Yours {
+			yours[b.Name] = b.Keys
 		}
-		if cfg.Keys == nil {
-			cfg.Keys = map[string]config.KeyList{}
-		}
-		cfg.Keys[b.Name] = config.KeyList(b.Keys)
 	}
+	cfg.SetKeys(yours)
 	return config.Save(cfg)
 }

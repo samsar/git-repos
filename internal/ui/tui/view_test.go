@@ -91,6 +91,34 @@ func TestViewsFillTerminal(t *testing.T) {
 			return m
 		},
 		"prs page empty": func() model { m := prsPage(base()); m.prs = git.PRs{}; return m },
+		"long status message": func() model {
+			m := base()
+			m.statusMsg = strings.Repeat("config.json's keys have 3 problem(s), so the default keys are in use ", 3)
+			return m
+		},
+		"narrow picker, last editor": func() model {
+			m := resize(base(), 80, 24)
+			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
+			m = press(m, "E")
+			for range m.editors {
+				m = press(m, "j")
+			}
+			if m.pickerCursor != len(m.editors)-1 || !strings.Contains(plain(m.View().Content), "› 9") {
+				t.Errorf("the picker doesn't show its last editor selected:\n%s", plain(m.View().Content))
+			}
+			return m
+		},
+		"narrow prs page error": func() model {
+			m := resize(prsPage(base()), 80, 24)
+			m.prs, m.prsErr = git.PRs{}, errors.New("gh api graphql: HTTP 401: Bad credentials (https://api.github.com/graphql)")
+			return m
+		},
+		"narrow settings": func() model {
+			m := resize(base(), 80, 24)
+			m.state = stateSettings
+			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
+			return m
+		},
 		"list editor picker": func() model {
 			m := base()
 			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })

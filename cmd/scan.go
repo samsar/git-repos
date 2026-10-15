@@ -10,7 +10,6 @@ import (
 
 	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
-	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/launch"
 	"github.com/samsar/git-repos/internal/ui/plain"
 	"github.com/samsar/git-repos/internal/ui/tui"
@@ -75,7 +74,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 		repos = filterHidden(repos, hidden)
 		if !flagNoPRs {
-			git.FetchAndMatchPRs(repos)
+			prs, err := git.FetchAndMatchPRs(repos)
+			warnPRs(prs, err)
 		}
 		git.SortRepos(repos)
 		return json.NewEncoder(os.Stdout).Encode(repos)
@@ -90,7 +90,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
-	bindings, keyProblems := keys.FromConfig(cfg.KeyMap())
+	bindings, keyProblems := resolveKeys(cfg)
 	opener, openerOK := launch.DetectOpener(cfg.Terminal, os.Getenv, runtime.GOOS)
 	return tui.Run(tui.Options{
 		Dirs:            scanDirs,
@@ -109,6 +109,17 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Opener:          opener,
 		OpenerOK:        openerOK,
 	})
+}
+
+// warnPRs says on stderr why PRs are missing: the lookup failed, or GitHub
+// left some out. The repos still print, without them.
+func warnPRs(prs git.PRs, err error) {
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "warning: couldn't look up PRs: %v\n", err)
+	case prs.Warning != "":
+		fmt.Fprintf(os.Stderr, "warning: GitHub left some PRs out: %s\n", prs.Warning)
+	}
 }
 
 func buildHiddenSet(cfg *config.Config) map[string]bool {

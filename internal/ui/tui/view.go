@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
 )
@@ -173,9 +174,16 @@ func (m model) frame(content string) string {
 	sepOpen, sepClose, _ := strings.Cut(sepStyle.Render("─"), "─")
 	horiz := strings.Repeat("─", m.width)
 
+	// A view taller than the screen loses its last lines rather than
+	// pushing the frame off it.
+	lines := strings.Split(content, "\n")
+	if len(lines) > m.height {
+		lines = lines[:m.height]
+	}
+
 	var b strings.Builder
 	b.WriteString(sepStyle.Render("╭"+horiz+"╮") + "\n")
-	for _, line := range strings.Split(content, "\n") {
+	for _, line := range lines {
 		l, r := "│", "│"
 		if strings.HasPrefix(line, sepOpen+"─") && strings.HasSuffix(line, "─"+sepClose) {
 			l, r = "├", "┤"
@@ -841,19 +849,19 @@ func (m model) renderStatusBar() string {
 
 	if m.searching {
 		queryStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorCyan)
-		content := queryStyle.Render("  /" + m.searchQuery + "█")
-		return style.Width(m.width).Render(content)
+		content := queryStyle.Render("  /" + m.query() + "█")
+		return style.Width(m.width).Render(ansi.Truncate(content, m.width, "…"))
 	}
 
-	if m.searchQuery != "" {
+	if m.query() != "" {
 		queryStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorCyan)
 		hintStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorFaintGray)
 		hint := "  (esc to clear)"
 		if k := m.keys.first(keys.Search); k != "" {
 			hint = "  (" + k + " to edit · esc to clear)"
 		}
-		content := queryStyle.Render("  /"+m.searchQuery) + hintStyle.Render(hint)
-		return style.Width(m.width).Render(content)
+		content := queryStyle.Render("  /"+m.query()) + hintStyle.Render(hint)
+		return style.Width(m.width).Render(ansi.Truncate(content, m.width, "…"))
 	}
 
 	var msg string
@@ -879,7 +887,7 @@ func (m model) renderStatusBar() string {
 	if msg != "" {
 		content += style.Render(msg)
 	}
-	return style.Width(m.width).Render(content)
+	return style.Width(m.width).Render(ansi.Truncate(content, m.width, "…"))
 }
 
 // legendContent returns the colour legend string (no width padding).
@@ -1185,7 +1193,7 @@ func (m model) viewSettings() string {
 		sepStyle.Render(strings.Repeat("─", m.width-sw-len(settingsLabel))) + "\n")
 
 	b.WriteString(blank)
-	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Config: ")+dStyle.Render(m.configPath)) + "\n")
+	b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render("  ")+dimS.Render("Config: ")+dStyle.Render(m.configPath), m.width, "…")) + "\n")
 	b.WriteString(blank)
 
 	type settingRow struct {
@@ -1231,7 +1239,7 @@ func (m model) viewSettings() string {
 
 		vStr := valStyle.Render(fmt.Sprintf("%-*s", valW, val))
 		desc := dimS.Render(row.desc)
-		b.WriteString(fill.Width(m.width).Render(fill.Render(cursor)+lStr+fill.Render("  ")+vStr+fill.Render("  ")+desc) + "\n")
+		b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render(cursor)+lStr+fill.Render("  ")+vStr+fill.Render("  ")+desc, m.width, "…")) + "\n")
 	}
 
 	// Info section
@@ -1245,7 +1253,7 @@ func (m model) viewSettings() string {
 
 	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+boldBg.Render("Scan directories:")) + "\n")
 	for _, dir := range m.scanDirs {
-		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dStyle.Render(dir)) + "\n")
+		b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render("    ")+dStyle.Render(dir), m.width, "…")) + "\n")
 	}
 	if len(m.scanDirs) == 0 {
 		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dimS.Render("(none — using current directory)")) + "\n")
@@ -1266,8 +1274,8 @@ func (m model) viewSettings() string {
 		}
 	}
 	b.WriteString(blank)
-	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Manage with: git repos config add/remove/hide/unhide")) + "\n")
-	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Keys: rebind them in the help ("+m.keys.first(keys.Help)+"), or in config.json's keys")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render("  ")+dimS.Render("Manage with: git repos config add/remove/hide/unhide"), m.width, "…")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render("  ")+dimS.Render("Keys: rebind them in the help ("+m.keys.first(keys.Help)+"), or in config.json's keys"), m.width, "…")) + "\n")
 
 	b.WriteString(blank)
 	const keysLabel = " Keys "

@@ -82,26 +82,43 @@ func (m model) fullToFilteredIdx(fullIdx int) int {
 
 func (m model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	q := m.query()
 	switch key {
 	case "esc":
 		m.searching = false
-		m.searchQuery = ""
-		m = m.searchChanged()
+		m = m.setQuery("")
 	case "enter":
 		m.searching = false
 	case "backspace", "ctrl+h":
-		if len(m.searchQuery) > 0 {
-			r := []rune(m.searchQuery)
-			m.searchQuery = string(r[:len(r)-1])
-			m = m.searchChanged()
+		if len(q) > 0 {
+			r := []rune(q)
+			m = m.setQuery(string(r[:len(r)-1]))
 		}
 	default:
 		if msg.Text != "" {
-			m.searchQuery += msg.Text
-			m = m.searchChanged()
+			m = m.setQuery(q + msg.Text)
 		}
 	}
 	return m, nil
+}
+
+// query is the search of the page shown: the PR page's, or the repos'.
+func (m model) query() string {
+	if m.state == statePRs {
+		return m.prQuery
+	}
+	return m.searchQuery
+}
+
+// setQuery sets the search of the page shown to q, its cursor back at
+// its top.
+func (m model) setQuery(q string) model {
+	if m.state == statePRs {
+		m.prQuery = q
+	} else {
+		m.searchQuery = q
+	}
+	return m.searchChanged()
 }
 
 // searchChanged puts the cursor of the page searched back at its top, as

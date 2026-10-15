@@ -110,3 +110,37 @@ func TestSettingsFieldTakesEveryKey(t *testing.T) {
 		t.Error("q closed the field")
 	}
 }
+
+// A prompt answers its own keys first: with quit bound to y, y still
+// confirms a delete, answers the swap question, and q still quits from
+// the picker.
+func TestPromptsTakeTheirKeys(t *testing.T) {
+	m := yours(t, map[string][]string{keys.Quit: {"y"}})
+	m.showDeleteConfirm = true
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if next.(model).showDeleteConfirm || cmd == nil {
+		t.Fatal("y doesn't confirm the delete")
+	}
+	if _, quit := cmd().(tea.QuitMsg); quit {
+		t.Error("y quit instead of confirming the delete")
+	}
+
+	m = helpOn(t, yours(t, map[string][]string{keys.Quit: {"y"}}), keys.Pull)
+	m = press(press(m, "r"), "s")
+	next, cmd = m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if cmd != nil {
+		t.Error("y quit instead of answering the swap")
+	}
+	if got := next.(model).keys.first(keys.Pull); got != "s" {
+		t.Errorf("pull is %q after y, want s", got)
+	}
+
+	m = yours(t, nil)
+	m.showPicker = true
+	if _, cmd = m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"}); cmd == nil {
+		t.Fatal("q does nothing in the picker")
+	}
+	if _, quit := cmd().(tea.QuitMsg); !quit {
+		t.Error("q doesn't quit from the picker")
+	}
+}

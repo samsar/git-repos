@@ -50,7 +50,7 @@ and esc always goes back. git repos keys check checks a file.`,
 		if err != nil {
 			return err
 		}
-		bindings, problems := keys.FromConfig(cfg.KeyMap())
+		bindings, problems := resolveKeys(cfg)
 		out := cmd.OutOrStdout()
 		switch {
 		case flagKeysFree && flagKeysJSON:
@@ -101,7 +101,7 @@ esc always goes back), and a key bound twice in one view. It exits 1 on any.`,
 			fmt.Fprintf(out, "%s: none yet, so git-repos takes its default keys\n", path)
 			return nil
 		}
-		bindings, problems := keys.FromConfig(cfg.KeyMap())
+		bindings, problems := resolveKeys(cfg)
 		if len(problems) > 0 {
 			for _, p := range problems {
 				fmt.Fprintf(out, "%s: %s\n", path, p)
@@ -119,6 +119,18 @@ func init() {
 	keysCmd.Flags().BoolVar(&flagKeysFree, "free", false, "list the keys still free in each view")
 	keysCmd.MarkFlagsMutuallyExclusive("json", "plain")
 	keysCmd.AddCommand(keysCheckCmd)
+}
+
+// resolveKeys is the bindings config.json's keys give over the defaults,
+// and every problem with them: keys that are neither a key nor a list of
+// them, then what keys.FromConfig finds; the defaults, with any.
+func resolveKeys(cfg *config.Config) ([]keys.Binding, []string) {
+	yours, problems := cfg.KeyMap()
+	bindings, more := keys.FromConfig(yours)
+	if problems = append(problems, more...); len(problems) > 0 {
+		return keys.Defaults(), problems
+	}
+	return bindings, nil
 }
 
 // keysListing is git repos keys --json: every binding, the reserved keys,

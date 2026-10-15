@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+// waitDelay is how long a command cut short by its deadline may keep its
+// output open, through a child of its, before git-repos stops reading it.
+const waitDelay = time.Second
+
 // ErrNoWindow: git-repos can't open a window in the terminal it runs in,
 // and config.json names no terminal command to do it.
 var ErrNoWindow = errors.New("can't open a terminal window here")
@@ -106,12 +110,7 @@ func startTemplate(template []string, e Editor, path string) error {
 	argv := templateArgv(template, e, path)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = path
-	detach(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go func() { _ = cmd.Wait() }()
-	return nil
+	return startDetached(cmd)
 }
 
 // templateArgv is config.json's terminal command for e in the repo at
@@ -135,9 +134,14 @@ func tmuxWindow(ctx context.Context, e Editor, path string) error {
 	if err != nil {
 		return err
 	}
-	out, err := exec.CommandContext(ctx, "tmux", tmuxArgv(args, path, os.Getenv("PATH"))...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("tmux: %s", strings.TrimSpace(string(out)))
+	cmd := exec.CommandContext(ctx, "tmux", tmuxArgv(args, path, os.Getenv("PATH"))...)
+	cmd.WaitDelay = waitDelay
+	out, err := cmd.CombinedOutput()
+	switch {
+	case ctx.Err() != nil:
+		return errors.New("tmux didn't answer in time")
+	case err != nil:
+		return fmt.Errorf("tmux: %s", firstLine(string(out), err))
 	}
 	return nil
 }
@@ -247,16 +251,40 @@ func scriptOpen(ctx context.Context, app scriptApp, e Editor, path string) error
 		argv = append(argv, "-e", strings.TrimSuffix(line, "\n"))
 	}
 	argv = append(argv, self+" launch "+token)
-	out, err := exec.CommandContext(ctx, "/usr/bin/osascript", argv...).CombinedOutput()
-	if err != nil {
+	cmd := exec.CommandContext(ctx, "/usr/bin/osascript", argv...)
+	cmd.WaitDelay = waitDelay
+	out, err := cmd.CombinedOutput()
+	switch {
+	case ctx.Err() != nil:
+		// The app may yet open it, so the handoff stays for it to read;
+		// the sweep takes it after a minute.
+		return fmt.Errorf("%s didn't answer in time; it may still open the %s", app.name, kindOf(app, e))
+	case err != nil:
 		_ = os.Remove(handoffPath(token))
-		msg := strings.TrimSpace(string(out))
+		msg := firstLine(string(out), err)
 		if strings.Contains(msg, "-1743") {
 			return fmt.Errorf("macOS didn't let git-repos script %s: allow it in System Settings › Privacy & Security › Automation", app.name)
 		}
 		return fmt.Errorf("%s: %s", app.name, msg)
 	}
 	return nil
+}
+
+// kindOf is what app opens for e: "tab", or "window".
+func kindOf(app scriptApp, e Editor) string {
+	if e.How() == Tab && app.tab != "" {
+		return "tab"
+	}
+	return "window"
+}
+
+// firstLine is out's first line, trimmed, or err's text when out says
+// nothing.
+func firstLine(out string, err error) string {
+	if line, _, _ := strings.Cut(strings.TrimSpace(out), "\n"); line != "" {
+		return line
+	}
+	return err.Error()
 }
 
 // Handoff is what git repos launch runs: the editor's command (none for

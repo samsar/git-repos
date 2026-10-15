@@ -63,12 +63,12 @@ func (m model) prLines() []prLine {
 		count := strconv.Itoa(total)
 		var shown []git.PullRequest
 		for _, pr := range prs {
-			if prMatches(pr, m.searchQuery) {
+			if prMatches(pr, m.prQuery) {
 				shown = append(shown, pr)
 			}
 		}
 		switch {
-		case m.searchQuery != "":
+		case m.prQuery != "":
 			count = fmt.Sprintf("%d of %d match", len(shown), len(prs))
 		case total > len(prs):
 			count = fmt.Sprintf("%d of %d", len(prs), total)
@@ -150,10 +150,11 @@ func (m model) trackPRs() model {
 	return m
 }
 
-// showPRs goes to the PR page, a search of the repos cleared.
+// showPRs goes to the PR page, each page keeping its own search.
 func (m model) showPRs() model {
-	m.state, m.searchQuery, m.prCursor, m.prOffset = statePRs, "", 0, 0
-	return m
+	m.state = statePRs
+	m.prCursor = max(0, min(m.prCursor, len(m.displayPRs())-1))
+	return m.trackPRs()
 }
 
 func (m model) handlePRsKey(action string) (tea.Model, tea.Cmd) {
@@ -208,16 +209,16 @@ func (m model) handlePRsKey(action string) (tea.Model, tea.Cmd) {
 	case keys.Refresh:
 		if !m.noPRs && !m.prsLoading {
 			m.prsLoading = true
-			return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+			return m, tea.Batch(m.spinner.Tick, loadPRsCmd())
 		}
 
 	case keys.SwitchPage:
-		m.state, m.searchQuery = stateList, ""
+		m.state = stateList
 		return m, nil
 
 	case keys.Back:
-		if m.searchQuery != "" {
-			m.searchQuery, m.prCursor, m.prOffset = "", 0, 0
+		if m.prQuery != "" {
+			m.prQuery, m.prCursor, m.prOffset = "", 0, 0
 			return m, nil
 		}
 		m.state = stateList
@@ -257,7 +258,7 @@ func (m model) viewPRs() string {
 // why there are no PRs to show.
 func (m model) prRows() []string {
 	say := func(text string) []string {
-		return []string{dimStyle.Width(m.width).Render("  " + text)}
+		return []string{dimStyle.Width(m.width).Render(ansi.Truncate("  "+text, m.width, "…"))}
 	}
 	switch {
 	case m.noPRs:
@@ -310,6 +311,9 @@ func (m model) prHeaderLines() []string {
 	case m.prsErr != nil:
 		leftW := max(1, m.width/3-lipgloss.Width(label("Error")))
 		lines = append(lines, label("Error")+attentionStyle.Background(headerBg).Render(trunc(m.prsErr.Error(), leftW)))
+	case m.prs.Warning != "":
+		leftW := max(1, m.width/3-lipgloss.Width(label("Some left out")))
+		lines = append(lines, label("Some left out")+attentionStyle.Background(headerBg).Render(trunc(m.prs.Warning, leftW)))
 	}
 	return lines
 }
@@ -418,7 +422,7 @@ func (m model) localStr(pr git.PullRequest) string {
 	switch {
 	case !ok:
 		return "-"
-	case m.repos[i].Branch == pr.Branch:
+	case git.OnPRBranch(m.repos[i], pr):
 		return "✓ here"
 	}
 	return "cloned"

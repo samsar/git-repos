@@ -69,14 +69,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshRepos = nil
 			m.refreshing = false
 			m.statusMsg = ""
+			// The PRs already looked up hold until the next lookup answers.
+			git.MatchPRs(m.repos, m.prs)
 			git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
 			m.cursor = min(m.cursor, max(0, len(m.repos)-1))
+			m.listCursor = min(m.listCursor, max(0, len(m.repos)-1))
 			if m.state == stateDetail {
 				m.detailVP.SetContent(m.renderDetailContent())
 			}
 			if !m.noPRs {
 				m.prsLoading = true
-				return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+				return m, tea.Batch(m.spinner.Tick, loadPRsCmd())
 			}
 			return m, nil
 		}
@@ -84,49 +87,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateList
 		if !m.noPRs {
 			m.prsLoading = true
-			return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+			return m, tea.Batch(m.spinner.Tick, loadPRsCmd())
 		}
 		return m, nil
 
 	case prsLoadedMsg:
-		m.repos = msg.repos
 		m.prsLoading = false
 		m.prsEverLoaded = true
 		m.prsErr = msg.err
 		if msg.err == nil {
 			m.prs = msg.prs
-		}
-		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
-		if m.state == stateDetail {
-			m.detailVP.SetContent(m.renderDetailContent())
-		}
-		return m, nil
-
-	case singleRepoPRLoadedMsg:
-		updated := git.RepoInfo(msg)
-		activePath := ""
-		if m.state == stateDetail && m.cursor < len(m.repos) {
-			activePath = m.repos[m.cursor].Path
-		}
-		for i, r := range m.repos {
-			if r.Path == updated.Path {
-				m.repos[i] = updated
-				break
-			}
-		}
-		m.prsLoading = false
-		m.prsEverLoaded = true
-		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
-		if activePath != "" {
-			for i, r := range m.repos {
-				if r.Path == activePath {
-					m.cursor = i
-					break
-				}
-			}
-		}
-		if m.state == stateDetail {
-			m.detailVP.SetContent(m.renderDetailContent())
+			m = m.matchPRs()
 		}
 		return m, nil
 
@@ -157,6 +128,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i, r := range m.repos {
 			if r.Path == updated.Path {
 				m.repos[i] = updated
+				// Its PR from those already looked up, until the next lookup.
+				git.MatchPRs(m.repos[i:i+1], m.prs)
 				break
 			}
 		}
@@ -187,7 +160,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !m.noPRs {
 				m.prsLoading = true
-				cmds = append(cmds, m.spinner.Tick, loadPRForRepoCmd(updated))
+				cmds = append(cmds, m.spinner.Tick, loadPRsCmd())
 			}
 			return m, tea.Batch(cmds...)
 		}
@@ -197,11 +170,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.repos = []git.RepoInfo(msg)
 		m.fetchingPR = false
 		m.statusMsg = "pulled all repos"
+		git.MatchPRs(m.repos, m.prs)
 		git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
 		m.cursor = min(m.cursor, max(0, len(m.repos)-1))
 		if !m.noPRs {
 			m.prsLoading = true
-			return m, tea.Batch(m.spinner.Tick, loadPRsCmd(m.repos))
+			return m, tea.Batch(m.spinner.Tick, loadPRsCmd())
 		}
 		return m, nil
 
@@ -283,6 +257,32 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	action := m.keys.in(m.keyView(), key)
 
+	// A prompt answers its own keys first, whatever your keys bind them
+	// to: y and enter confirm a delete, y and n answer the help's swap
+	// question, and 1 to 9 pick an editor. Quit quits from any other key.
+	if m.showDeleteConfirm {
+		switch {
+		case key == "y" || key == "enter":
+			filtered := m.displayRepos()
+			if len(filtered) > 0 && m.cursor < len(filtered) {
+				repo := filtered[m.cursor]
+				m.showDeleteConfirm = false
+				m.statusMsg = "deleting " + repo.Name + "…"
+				return m, tea.Batch(m.spinner.Tick, deleteRepoDirCmd(repo))
+			}
+		case action == keys.Quit:
+			return m, tea.Quit
+		}
+		m.showDeleteConfirm = false
+		return m, nil
+	}
+	if m.showPicker {
+		return m.handlePickerKey(action, key)
+	}
+	if m.showHelp && m.help.stage == asking {
+		return m.handleHelpKey(action, key)
+	}
+
 	if action == keys.Quit {
 		return m, tea.Quit
 	}
@@ -294,27 +294,6 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	if action == keys.Help {
 		return m.openHelp(), nil
-	}
-
-	// The editor picker takes every key while open
-	if m.showPicker {
-		return m.handlePickerKey(action, key)
-	}
-
-	// Delete confirmation intercepts all keys
-	if m.showDeleteConfirm {
-		switch key {
-		case "y", "enter":
-			filtered := m.displayRepos()
-			if len(filtered) > 0 && m.cursor < len(filtered) {
-				repo := filtered[m.cursor]
-				m.showDeleteConfirm = false
-				m.statusMsg = "deleting " + repo.Name + "…"
-				return m, tea.Batch(m.spinner.Tick, deleteRepoDirCmd(repo))
-			}
-		}
-		m.showDeleteConfirm = false
-		return m, nil
 	}
 
 	switch m.state {
@@ -334,6 +313,9 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 	filtered := m.displayRepos()
 	n := len(filtered)
 	visRows := m.visibleRows()
+	// The cursor stays on a repo shown, whatever left fewer.
+	m.cursor = max(0, min(m.cursor, n-1))
+	m.offset = min(m.offset, m.cursor)
 
 	switch action {
 	case keys.MoveUp:
@@ -437,7 +419,7 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 		}
 
 	case keys.Settings:
-		m.state = stateSettings
+		m.state, m.settingsFrom = stateSettings, stateList
 
 	case keys.Refresh:
 		if !m.refreshing {
@@ -466,6 +448,29 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// matchPRs gives each repo its PR from m.prs and re-sorts them, the
+// detail view keeping its repo, and keeps the PR page's cursor on a PR.
+func (m model) matchPRs() model {
+	activePath := ""
+	if m.state == stateDetail && m.cursor < len(m.repos) {
+		activePath = m.repos[m.cursor].Path
+	}
+	git.MatchPRs(m.repos, m.prs)
+	git.SortReposByCol(m.repos, m.sortCol, m.sortDesc)
+	for i, r := range m.repos {
+		if activePath != "" && r.Path == activePath {
+			m.cursor = i
+			break
+		}
+	}
+	m.prCursor = max(0, min(m.prCursor, len(m.displayPRs())-1))
+	m = m.trackPRs()
+	if m.state == stateDetail {
+		m.detailVP.SetContent(m.renderDetailContent())
+	}
+	return m
 }
 
 // openDetail shows the detail view of m.repos[i], loading its commits.
@@ -505,7 +510,8 @@ func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
 		// Back to the PR page it was opened from, its list cursor put back;
 		// else translate full m.repos cursor back to filtered-list cursor.
 		if m.detailFrom == statePRs {
-			m.state, m.cursor, m.detailFrom = statePRs, m.listCursor, stateList
+			m.state, m.detailFrom = statePRs, stateList
+			m.cursor = max(0, min(m.listCursor, len(m.displayRepos())-1))
 			return m, nil
 		}
 		m.cursor = m.fullToFilteredIdx(m.cursor)
@@ -566,7 +572,7 @@ func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
 		}
 
 	case keys.Settings:
-		m.state = stateSettings
+		m.state, m.settingsFrom = stateSettings, stateDetail
 	}
 	return m, nil
 }
@@ -625,7 +631,12 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
 		}
 	case keys.Back:
+		// Back to the page the settings were opened from.
 		m.state = stateList
+		if m.settingsFrom == stateDetail && m.cursor < len(m.repos) {
+			m.state = stateDetail
+			m.detailVP.SetContent(m.renderDetailContent())
+		}
 		if err := m.saveConfig(); err != nil {
 			m.statusMsg = "couldn't save settings: " + err.Error()
 		}

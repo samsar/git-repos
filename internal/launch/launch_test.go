@@ -1,8 +1,10 @@
 package launch
 
 import (
+	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -243,5 +245,52 @@ func TestTabs(t *testing.T) {
 	}
 	if d := claude.Describe(); d != "in a new terminal tab" {
 		t.Errorf("Describe %q", d)
+	}
+}
+
+// A detached start that fails at once says why, from its stderr; one
+// that runs on, or finishes well, started.
+func TestStartGUI(t *testing.T) {
+	dir := t.TempDir()
+	fails := Editor{Cmd: []string{"sh", "-c", "echo 'no mux server running' >&2; exit 3"}}
+	if err := StartGUI(fails, dir); err == nil || err.Error() != "sh: no mux server running" {
+		t.Errorf("a failing start: %v", err)
+	}
+	start := time.Now()
+	if err := StartGUI(Editor{Cmd: []string{"sh", "-c", "sleep 3"}}, dir); err != nil {
+		t.Errorf("a running start: %v", err)
+	}
+	if d := time.Since(start); d > 2*earlyExit {
+		t.Errorf("a running start took %v", d)
+	}
+	if err := StartGUI(Editor{Cmd: []string{"true"}}, dir); err != nil {
+		t.Errorf("a start that finishes well: %v", err)
+	}
+	if err := StartGUI(Editor{Cmd: []string{"git-repos-no-such-editor"}}, dir); err == nil {
+		t.Error("a start of no program")
+	}
+}
+
+// tmux that doesn't answer in time, or fails, says so.
+func TestTmuxWindowErrors(t *testing.T) {
+	bin := t.TempDir()
+	fake := func(script string) {
+		if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+":/bin:/usr/bin")
+	e := Editor{Cmd: []string{"sh"}, Mode: Tab}
+
+	fake("sleep 5")
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := tmuxWindow(ctx, e, t.TempDir()); err == nil || err.Error() != "tmux didn't answer in time" {
+		t.Errorf("a stalled tmux: %v", err)
+	}
+
+	fake("echo 'no server running on /tmp/tmux-501/default' >&2; exit 1")
+	if err := tmuxWindow(context.Background(), e, t.TempDir()); err == nil || err.Error() != "tmux: no server running on /tmp/tmux-501/default" {
+		t.Errorf("a failing tmux: %v", err)
 	}
 }

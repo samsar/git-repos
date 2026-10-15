@@ -41,14 +41,14 @@ type scanStartedMsg struct {
 }
 type repoScannedMsg git.ScanResult
 type scanDoneMsg struct{}
-// prsLoadedMsg is the repos with their PRs matched, and the PRs: yours
-// and those asking for your review; or why they couldn't be looked up.
+
+// prsLoadedMsg is the PRs, yours and those asking for your review, which
+// the handler matches to the repos as they are by then; or why they
+// couldn't be looked up.
 type prsLoadedMsg struct {
-	repos []git.RepoInfo
-	prs   git.PRs
-	err   error
+	prs git.PRs
+	err error
 }
-type singleRepoPRLoadedMsg git.RepoInfo
 type commitsLoadedMsg []string
 type behindCommitsLoadedMsg []string
 type fetchDoneMsg git.RepoInfo
@@ -210,6 +210,10 @@ type model struct {
 	prCursor int // in displayPRs()
 	prOffset int // in prLines()
 	prFilter prFilter
+	prQuery  string // the PR page's search, apart from the repos'
+	// settingsFrom is the page the settings go back to: the list, or the
+	// detail view.
+	settingsFrom viewState
 	// detailFrom is the page the detail view goes back to: the list, or
 	// the PR page, when listCursor is the list's cursor to put back.
 	detailFrom viewState
@@ -478,19 +482,13 @@ func waitForScanCmd(ch <-chan git.ScanResult) tea.Cmd {
 	}
 }
 
-func loadPRsCmd(repos []git.RepoInfo) tea.Cmd {
+// loadPRsCmd looks up the PRs. It touches no repo: the handler matches
+// the PRs to the repos as they are when it answers, which a pull or a
+// refresh meanwhile may have changed.
+func loadPRsCmd() tea.Cmd {
 	return func() tea.Msg {
-		cp := make([]git.RepoInfo, len(repos))
-		copy(cp, repos)
-		prs, err := git.FetchAndMatchPRs(cp)
-		return prsLoadedMsg{repos: cp, prs: prs, err: err}
-	}
-}
-
-func loadPRForRepoCmd(repo git.RepoInfo) tea.Cmd {
-	return func() tea.Msg {
-		git.FetchAndMatchPRForRepo(&repo)
-		return singleRepoPRLoadedMsg(repo)
+		prs, err := git.FetchPRs()
+		return prsLoadedMsg{prs: prs, err: err}
 	}
 }
 

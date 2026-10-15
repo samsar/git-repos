@@ -1,9 +1,12 @@
 package git
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,6 +43,10 @@ type PRs struct {
 	ReviewRequested []PullRequest `json:"review_requested"`
 	MineTotal       int           `json:"mine_total"`
 	ReviewTotal     int           `json:"review_total"`
+	// Warning is the first of the errors GitHub answered beside its data,
+	// about PRs it left out: those of an org whose SSO your gh token isn't
+	// authorized for, say. "" for none.
+	Warning string `json:"warning,omitempty"`
 }
 
 // prLimit is how many of each FetchPRs asks for: one page.
@@ -60,23 +67,38 @@ fragment pr on PullRequest {
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
 }`
 
+// prTimeout bounds the PR lookup.
+const prTimeout = 30 * time.Second
+
 // FetchPRs asks GitHub, through gh, for your open PRs and those asking for
 // your review, in one request.
 func FetchPRs() (PRs, error) {
-	out, errOut, rc := RunCmd([]string{"gh", "api", "graphql",
-		"-f", "query=" + prQuery,
+	ctx, cancel := context.WithTimeout(context.Background(), prTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
+		"-f", "query="+prQuery,
 		"-f", "mine=is:pr is:open archived:false sort:updated-desc author:@me",
 		"-f", "review=is:pr is:open archived:false sort:updated-desc review-requested:@me",
-		"-F", "limit=" + strconv.Itoa(prLimit),
-	}, "", 30*time.Second)
-	if rc != 0 && out == "" {
-		msg, _, _ := strings.Cut(errOut, "\n")
+		"-F", "limit="+strconv.Itoa(prLimit))
+	cmd.WaitDelay = time.Second // a child of gh's holding its output open
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	switch {
+	case errors.Is(err, exec.ErrNotFound):
+		return PRs{}, errors.New("gh isn't installed: see https://cli.github.com")
+	case ctx.Err() != nil:
+		return PRs{}, fmt.Errorf("gh didn't answer in %s", prTimeout)
+	case err != nil && stdout.Len() == 0:
+		msg, _, _ := strings.Cut(strings.TrimSpace(stderr.String()), "\n")
 		if msg == "" {
-			msg = fmt.Sprintf("exit %d", rc)
+			msg = err.Error()
 		}
 		return PRs{}, fmt.Errorf("gh api graphql: %s", msg)
 	}
-	return parsePRs([]byte(out))
+	// gh exits non-zero on errors GitHub answers beside its data, which
+	// parsePRs reads as a warning.
+	return parsePRs(stdout.Bytes())
 }
 
 // prNode is a PullRequest as the query returns it.
@@ -134,12 +156,19 @@ func parsePRs(data []byte) (PRs, error) {
 		}
 		return PRs{}, errors.New("GitHub answered with no data")
 	}
-	return PRs{
+	prs := PRs{
 		Mine:            pullRequests(resp.Data.Mine.Nodes),
 		ReviewRequested: pullRequests(resp.Data.Review.Nodes),
 		MineTotal:       resp.Data.Mine.IssueCount,
 		ReviewTotal:     resp.Data.Review.IssueCount,
-	}, nil
+	}
+	if len(resp.Errors) > 0 {
+		prs.Warning = resp.Errors[0].Message
+		if n := len(resp.Errors) - 1; n > 0 {
+			prs.Warning += fmt.Sprintf(" (and %d more)", n)
+		}
+	}
+	return prs, nil
 }
 
 func pullRequests(nodes []prNode) []PullRequest {
@@ -189,15 +218,30 @@ func repoKeys(r RepoInfo) []string {
 	return keys
 }
 
-// ForRepo is the PR whose branch r has checked out, of prs: one merging
-// into, or from, a repo r has as a remote (a fork's PR to upstream
-// too); the lowest numbered of several. False for none.
+// OnPRBranch reports whether r has pr's branch checked out: a branch of
+// its name, in a clone with the repo that branch is in as a remote, the
+// fork's for a PR from one. A branch of the same name in a clone of the
+// repo it merges into alone (your own main, beside a fork's main) isn't.
+func OnPRBranch(r RepoInfo, pr PullRequest) bool {
+	return r.Branch == pr.Branch && slices.Contains(repoKeys(r), headRepo(pr))
+}
+
+// headRepo is the repo pr's branch is in: its fork's, for a PR from one;
+// the repo it merges into otherwise, or when the fork is gone.
+func headRepo(pr PullRequest) string {
+	if pr.HeadRepo != "" {
+		return pr.HeadRepo
+	}
+	return pr.Repo
+}
+
+// ForRepo is the PR of prs whose branch r has checked out (OnPRBranch);
+// the lowest numbered of several. False for none.
 func ForRepo(r RepoInfo, prs []PullRequest) (PullRequest, bool) {
-	keys := repoKeys(r)
 	var best PullRequest
 	found := false
 	for _, pr := range prs {
-		if pr.Branch != r.Branch || !(slices.Contains(keys, pr.Repo) || slices.Contains(keys, pr.HeadRepo)) {
+		if !OnPRBranch(r, pr) {
 			continue
 		}
 		if !found || pr.Number < best.Number {
@@ -233,7 +277,7 @@ func FetchAndMatchPRs(repos []RepoInfo) (PRs, error) {
 
 // LocalFor is the index in repos of the clone pr's code is in: a repo
 // with the repo it merges into, or comes from, as a remote; one with its
-// branch checked out first. False for none.
+// branch checked out (OnPRBranch) first. False for none.
 func LocalFor(pr PullRequest, repos []RepoInfo) (int, bool) {
 	found := -1
 	for i, r := range repos {
@@ -241,7 +285,7 @@ func LocalFor(pr PullRequest, repos []RepoInfo) (int, bool) {
 		if !slices.Contains(keys, pr.Repo) && !slices.Contains(keys, pr.HeadRepo) {
 			continue
 		}
-		if r.Branch == pr.Branch {
+		if OnPRBranch(r, pr) {
 			return i, true
 		}
 		if found < 0 {

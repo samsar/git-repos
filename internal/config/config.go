@@ -5,22 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/samsar/git-repos/internal/launch"
 )
 
 type Config struct {
-	Dirs            []string           `json:"dirs"`
-	Hidden          []string           `json:"hidden,omitempty"`
-	AutoRefreshMins int                `json:"auto_refresh_mins,omitempty"` // 0 = disabled
-	BootFetch       bool               `json:"boot_fetch,omitempty"`        // run git fetch at startup
-	Keys            map[string]KeyList `json:"keys,omitempty"`              // binding name → your keys, over its defaults
-	DefaultEditor   string             `json:"default_editor,omitempty"`    // the editor e opens a repo in
-	Editors         []launch.Editor    `json:"editors,omitempty"`           // yours, over the presets of their names
-	Terminal        []string           `json:"terminal,omitempty"`          // opens a window: {path} the repo, {cmd} the editor
+	Dirs            []string                   `json:"dirs"`
+	Hidden          []string                   `json:"hidden,omitempty"`
+	AutoRefreshMins int                        `json:"auto_refresh_mins,omitempty"` // 0 = disabled
+	BootFetch       bool                       `json:"boot_fetch,omitempty"`        // run git fetch at startup
+	Keys            map[string]json.RawMessage `json:"keys,omitempty"`              // binding name → your keys, over its defaults (KeyMap)
+	DefaultEditor   string                     `json:"default_editor,omitempty"`    // the editor e opens a repo in
+	Editors         []launch.Editor            `json:"editors,omitempty"`           // yours, over the presets of their names
+	Terminal        []string                   `json:"terminal,omitempty"`          // opens a window: {path} the repo, {cmd} the editor
 }
 
 // KeyList is a binding's keys in config.json: one key as a string
@@ -40,7 +42,7 @@ func (k *KeyList) UnmarshalJSON(data []byte) error {
 	}
 	var many []string
 	if err := json.Unmarshal(data, &many); err != nil {
-		return fmt.Errorf("a binding's keys are a key, such as \"f\", or a list of them, such as [\"j\", \"down\"]")
+		return fmt.Errorf("keys are a key, such as \"f\", or a list of them, such as [\"j\", \"down\"]")
 	}
 	*k = KeyList(many)
 	return nil
@@ -56,17 +58,40 @@ func (k KeyList) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string(k))
 }
 
-// KeyMap is c's keys by binding name, as package keys takes them; nil
-// for a nil config.
-func (c *Config) KeyMap() map[string][]string {
+// KeyMap is c's keys by binding name, as package keys takes them, and a
+// problem, in the order of their names, for each binding whose keys are
+// neither a key nor a list of them, which it leaves out: config.json
+// still loads, so the TUI can start on the default keys and say why.
+func (c *Config) KeyMap() (map[string][]string, []string) {
 	if c == nil {
-		return nil
+		return nil, nil
 	}
 	out := make(map[string][]string, len(c.Keys))
-	for name, ks := range c.Keys {
+	var problems []string
+	for _, name := range slices.Sorted(maps.Keys(c.Keys)) {
+		var ks KeyList
+		if err := json.Unmarshal(c.Keys[name], &ks); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v, not %s", name, err, c.Keys[name]))
+			continue
+		}
 		out[name] = ks
 	}
-	return out
+	return out, problems
+}
+
+// SetKeys makes yours, by binding name, c's keys; none for an empty map.
+func (c *Config) SetKeys(yours map[string][]string) {
+	c.Keys = nil
+	for name, ks := range yours {
+		data, err := json.Marshal(KeyList(ks))
+		if err != nil {
+			continue // a list of strings always marshals
+		}
+		if c.Keys == nil {
+			c.Keys = map[string]json.RawMessage{}
+		}
+		c.Keys[name] = data
+	}
 }
 
 func Path() string {
@@ -100,11 +125,20 @@ func LoadFrom(path string) (*Config, error) {
 
 // Save writes cfg to the config file whole, or not at all: to a file
 // beside it, then renamed over it, so a write cut short never leaves a
-// config git-repos can't read.
+// config git-repos can't read. A config file that is a symlink (into a
+// dotfiles repo, say) stays one: the file it points to is the one
+// written. The file keeps its mode.
 func Save(cfg *Config) error {
 	path := Path()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
+	}
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		path = target
+	}
+	mode := os.FileMode(0o644)
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -119,7 +153,7 @@ func Save(cfg *Config) error {
 		tmp.Close()
 		return err
 	}
-	if err := tmp.Chmod(0o644); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		tmp.Close()
 		return err
 	}

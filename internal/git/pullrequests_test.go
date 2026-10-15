@@ -59,9 +59,9 @@ func TestParsePRsErrors(t *testing.T) {
 	if _, err := parsePRs([]byte(`{"errors":[{"message":"Bad credentials"}]}`)); err == nil || err.Error() != "Bad credentials" {
 		t.Errorf("err %v", err)
 	}
-	partial := `{"data":{"mine":{"issueCount":0,"nodes":[]},"review":{"issueCount":0,"nodes":[]}},"errors":[{"message":"a repo is gone"}]}`
-	if _, err := parsePRs([]byte(partial)); err != nil {
-		t.Errorf("partial data refused: %v", err)
+	partial := `{"data":{"mine":{"issueCount":0,"nodes":[]},"review":{"issueCount":0,"nodes":[]}},"errors":[{"message":"SAML enforcement"},{"message":"another"}]}`
+	if prs, err := parsePRs([]byte(partial)); err != nil || prs.Warning != "SAML enforcement (and 1 more)" {
+		t.Errorf("partial data: warning %q, err %v", prs.Warning, err)
 	}
 	if _, err := parsePRs([]byte(`not json`)); err == nil || !strings.Contains(err.Error(), "reading GitHub's answer") {
 		t.Errorf("err %v", err)
@@ -74,16 +74,19 @@ func TestParsePRsErrors(t *testing.T) {
 // lose a PR they had.
 func TestMatchPRs(t *testing.T) {
 	prs, _ := parsePRs([]byte(answer))
-	prs.Mine = append(prs.Mine, PullRequest{Repo: "acme/api", Number: 50, Branch: "feature/auth"})
+	prs.Mine = append(prs.Mine, PullRequest{Repo: "acme/api", Number: 50, Branch: "feature/auth", URL: "https://github.com/acme/api/pull/50"})
 	repos := []RepoInfo{
 		{Name: "api", Branch: "feature/auth", RemoteURL: "git@github.com:me/api.git",
 			Remotes: []Remote{{Name: "origin", URL: "git@github.com:me/api.git"}, {Name: "upstream", URL: "https://github.com/acme/api"}}},
 		{Name: "web", Branch: "feature/dash", RemoteURL: "https://github.com/acme/web.git"},
 		{Name: "side", Branch: "main", RemoteURL: "git@github.com:me/side.git", PRNumber: 3, PRUrl: "old"},
 		{Name: "other", Branch: "feature/auth", RemoteURL: "git@gitlab.com:acme/api.git"},
+		// A clone of the repo a fork's PR merges into, on a branch of the
+		// same name as the fork's: your own main, not the PR's.
+		{Name: "api-upstream", Branch: "feature/auth", RemoteURL: "git@github.com:acme/api.git"},
 	}
 	MatchPRs(repos, prs)
-	want := []int{42, 38, 0, 0}
+	want := []int{42, 38, 0, 0, 50}
 	for i, r := range repos {
 		if r.PRNumber != want[i] || (r.PRNumber > 0) != (r.PRUrl != "") {
 			t.Errorf("%s: #%d %q, want #%d", r.Name, r.PRNumber, r.PRUrl, want[i])
@@ -108,5 +111,14 @@ func TestLocalFor(t *testing.T) {
 	}
 	if _, ok := LocalFor(pr, repos[:1]); ok {
 		t.Error("found a clone of another repo")
+	}
+	// A clone of the base repo on a branch of the fork's branch's name is
+	// cloned, not on the PR's branch.
+	upstream := RepoInfo{Name: "api", RemoteURL: "git@github.com:acme/api.git", Branch: "feature/auth"}
+	if i, ok := LocalFor(pr, []RepoInfo{upstream}); !ok || i != 0 || OnPRBranch(upstream, pr) {
+		t.Errorf("LocalFor = %d, %v; on the PR's branch %v", i, ok, OnPRBranch(upstream, pr))
+	}
+	if !OnPRBranch(repos[2], pr) {
+		t.Error("the fork's clone isn't on the PR's branch")
 	}
 }

@@ -27,13 +27,17 @@ func helpOn(t *testing.T, m model, name string) model {
 }
 
 // yourKeysOnDisk is config.json's keys, as saved.
-func yourKeysOnDisk(t *testing.T) map[string]config.KeyList {
+func yourKeysOnDisk(t *testing.T) map[string][]string {
 	t.Helper()
 	cfg, err := config.Load()
 	if err != nil || cfg == nil {
 		t.Fatalf("config.json: %v, %v", cfg, err)
 	}
-	return cfg.Keys
+	yours, problems := cfg.KeyMap()
+	if len(problems) > 0 {
+		t.Fatalf("problems: %q", problems)
+	}
+	return yours
 }
 
 // A free key is saved at once, acts at once, and says so.
@@ -47,7 +51,7 @@ func TestRebindFreeKey(t *testing.T) {
 	if m.help.stage != browsing || m.help.note != "Search is F now, saved in config.json" {
 		t.Errorf("stage %d, note %q", m.help.stage, m.help.note)
 	}
-	if got := yourKeysOnDisk(t); len(got) != 1 || !slices.Equal(got[keys.Search], config.KeyList{"F"}) {
+	if got := yourKeysOnDisk(t); len(got) != 1 || !slices.Equal(got[keys.Search], []string{"F"}) {
 		t.Errorf("saved %v", got)
 	}
 	m = press(m, "esc")
@@ -65,7 +69,7 @@ func TestRebindSwapAndReset(t *testing.T) {
 		t.Fatalf("stage %d, note %q", m.help.stage, m.help.note)
 	}
 	m = press(m, "y")
-	if got := yourKeysOnDisk(t); !slices.Equal(got[keys.Pull], config.KeyList{"s"}) || !slices.Equal(got[keys.Shell], config.KeyList{"p"}) {
+	if got := yourKeysOnDisk(t); !slices.Equal(got[keys.Pull], []string{"s"}) || !slices.Equal(got[keys.Shell], []string{"p"}) {
 		t.Errorf("saved %v", got)
 	}
 	if m.help.note != "Pull repo is s and Open shell is p now, saved in config.json" {
@@ -125,7 +129,7 @@ func TestSaveSettingsKeepsKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg, _ := config.Load()
-	if !cfg.BootFetch || !slices.Equal(cfg.Keys[keys.Search], config.KeyList{"F"}) {
+	if yours, _ := cfg.KeyMap(); !cfg.BootFetch || !slices.Equal(yours[keys.Search], []string{"F"}) {
 		t.Errorf("saved %+v", cfg)
 	}
 }

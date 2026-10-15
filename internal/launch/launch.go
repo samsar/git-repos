@@ -5,10 +5,14 @@ package launch
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Mode is how an editor opens a repo.
@@ -171,12 +175,76 @@ func StartGUI(e Editor, path string) error {
 	args := e.Args(path)
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = path
+	return startDetached(cmd)
+}
+
+// earlyExit is how long a detached start watches the program for a
+// failure before taking it as started.
+const earlyExit = time.Second
+
+// startDetached starts cmd detached and watches it for earlyExit: one
+// that exits with an error by then failed, and the error says why, from
+// the first line of its stderr; one still running, or done without an
+// error (a CLI handing the repo to its app), started. Its stderr is
+// drained for as long as it writes, its first 4 KB kept, so a program
+// that writes a lot neither blocks nor grows git-repos.
+func startDetached(cmd *exec.Cmd) error {
 	detach(cmd)
-	if err := cmd.Start(); err != nil {
+	r, w, err := os.Pipe()
+	if err != nil {
 		return err
 	}
-	go func() { _ = cmd.Wait() }()
-	return nil
+	cmd.Stderr = w
+	if err := cmd.Start(); err != nil {
+		r.Close()
+		w.Close()
+		return err
+	}
+	w.Close()
+	stderr := &headBuffer{}
+	drained := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(stderr, r)
+		r.Close()
+		close(drained)
+	}()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		if err == nil {
+			return nil
+		}
+		select { // what it said, unless a child of its holds stderr open
+		case <-drained:
+		case <-time.After(100 * time.Millisecond):
+		}
+		return fmt.Errorf("%s: %s", filepath.Base(cmd.Args[0]), firstLine(stderr.String(), err))
+	case <-time.After(earlyExit):
+		return nil
+	}
+}
+
+// headBuffer keeps the first 4 KB written to it, and takes the rest
+// without keeping it.
+type headBuffer struct {
+	mu sync.Mutex
+	b  []byte
+}
+
+func (h *headBuffer) Write(p []byte) (int, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if room := 4096 - len(h.b); room > 0 {
+		h.b = append(h.b, p[:min(len(p), room)]...)
+	}
+	return len(p), nil
+}
+
+func (h *headBuffer) String() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return string(h.b)
 }
 
 // InlineCmd is the command running e in the repo at path, for git-repos
