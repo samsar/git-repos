@@ -50,8 +50,8 @@ func TestResolve(t *testing.T) {
 			want: map[string]string{Back: "h", Quit: "Q"}, yours: []string{Back, Quit}},
 		{name: "a swap", entries: []Entry{entry(Pull, "s"), entry(Shell, "p")},
 			want: map[string]string{Pull: "s", Shell: "p"}, yours: []string{Pull, Shell}},
-		{name: "a key that means one thing in each view", entries: []Entry{entry(Delete, "e")},
-			want: map[string]string{Delete: "e", Edit: "e"}, yours: []string{Delete}},
+		{name: "a key that means one thing in each view", entries: []Entry{entry(Delete, "space")},
+			want: map[string]string{Delete: "space", Toggle: "enter space"}, yours: []string{Delete}},
 
 		{name: "an unknown name", entries: []Entry{entry("serch", "f")},
 			errs: []string{`there is no "serch" to give keys to; did you mean search? (git repos keys lists them all)`}},

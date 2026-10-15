@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/launch"
 )
 
 // Every view must fill the whole terminal inside a border, and give every cell
@@ -77,6 +78,16 @@ func TestViewsFillTerminal(t *testing.T) {
 			m := base()
 			m.showDeleteConfirm = true
 			return m
+		},
+		"list editor picker": func() model {
+			m := base()
+			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
+			return press(m, "E")
+		},
+		"detail editor picker": func() model {
+			m := detail(0, true)
+			m.editors = launch.Available(nil, func(string) (string, error) { return "/bin/x", nil })
+			return press(m, "E")
 		},
 		"scanning": func() model {
 			m := base()

@@ -39,6 +39,8 @@ func init() {
 
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(keysCmd)
+	rootCmd.AddCommand(editorsCmd)
+	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 

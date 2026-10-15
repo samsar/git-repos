@@ -54,6 +54,8 @@ const (
 	Pull        = "pull"
 	PullAll     = "pull_all"
 	Shell       = "shell"
+	OpenEditor  = "open_editor"
+	PickEditor  = "pick_editor"
 	Delete      = "delete"
 	Refresh     = "refresh"
 	Settings    = "settings"
@@ -103,6 +105,8 @@ var catalog = []Binding{
 	{Name: Pull, Label: "Pull repo", Defaults: []string{"p"}, Views: onRepos},
 	{Name: PullAll, Label: "Pull all", Defaults: []string{"ctrl+p"}, Views: inList},
 	{Name: Shell, Label: "Open shell", Defaults: []string{"s"}, Views: onRepos},
+	{Name: OpenEditor, Label: "Open in editor", Defaults: []string{"e"}, Views: onRepos},
+	{Name: PickEditor, Label: "Open in…", Defaults: []string{"E"}, Views: onRepos},
 	{Name: Delete, Label: "Delete repo", Defaults: []string{"ctrl+d"}, Views: inList},
 	{Name: Refresh, Label: "Refresh", Defaults: []string{"r"}, Views: onRepos},
 	{Name: Settings, Label: "Settings", Defaults: []string{"z"}, Views: onRepos},

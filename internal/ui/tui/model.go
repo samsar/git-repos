@@ -17,6 +17,7 @@ import (
 	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
+	"github.com/samsar/git-repos/internal/launch"
 	"github.com/samsar/git-repos/internal/version"
 )
 
@@ -200,6 +201,14 @@ type model struct {
 	searching   bool
 	searchQuery string
 
+	// editors
+	editors       []launch.Editor
+	defaultEditor string // by name; "" for launch.Pick's choice
+	opener        launch.Opener
+	openerOK      bool
+	showPicker    bool
+	pickerCursor  int
+
 	// ui
 	keys              keymap
 	keyProblems       []string // config.json's keys' problems, the defaults in use
@@ -221,26 +230,53 @@ type model struct {
 	updateAvailable bool
 }
 
-func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string, bindings []keys.Binding, keyProblems []string) model {
+// Options is how the TUI runs: what it scans, and what config.json says.
+type Options struct {
+	Dirs            []string
+	Fetch           bool // git fetch in every repo as it scans
+	PRs             bool // look up open GitHub PRs
+	Hidden          map[string]bool
+	AutoRefreshMins int
+	BootFetch       bool
+	ConfigPath      string
+	Version         string
+	// Bindings are the keys, and KeyProblems config.json's keys' problems,
+	// the default keys in use when it has any.
+	Bindings    []keys.Binding
+	KeyProblems []string
+	// Editors are the editors a repo opens in (launch.Available), and
+	// DefaultEditor the one e opens, by name; "" for launch.Pick's choice.
+	Editors       []launch.Editor
+	DefaultEditor string
+	// Opener opens terminal windows, when OpenerOK.
+	Opener   launch.Opener
+	OpenerOK bool
+}
+
+func New(o Options) model {
 	statusMsg := ""
-	if n := len(keyProblems); n > 0 {
+	if n := len(o.KeyProblems); n > 0 {
 		statusMsg = fmt.Sprintf("config.json's keys have %d problem(s), so the default keys are in use: run git repos keys check", n)
 	}
 	return model{
-		keys:            keymap{bindings: bindings},
-		keyProblems:     keyProblems,
+		keys:            keymap{bindings: o.Bindings},
+		keyProblems:     o.KeyProblems,
+		editors:         o.Editors,
+		defaultEditor:   o.DefaultEditor,
+		opener:          o.Opener,
+		openerOK:        o.OpenerOK,
 		statusMsg:       statusMsg,
-		scanDirs:        dirs,
-		doFetch:         doFetch,
-		noPRs:           noPRs,
+		scanDirs:        o.Dirs,
+		doFetch:         o.Fetch,
+		noPRs:           !o.PRs,
 		state:           stateScanning,
 		spinner:         newSpinner(),
 		sortCol:         git.SortStatus,
-		hidden:          hidden,
-		autoRefreshMins: autoRefreshMins,
-		bootFetch:       bootFetch,
-		configPath:      configPath,
-		version:         normalizeVersion(version),
+		hidden:          o.Hidden,
+		autoRefreshMins: o.AutoRefreshMins,
+		bootFetch:       o.BootFetch,
+		configPath:      o.ConfigPath,
+		version:         normalizeVersion(o.Version),
 		gitVersion:      detectCLIVersion("git", "--version"),
 		ghVersion:       detectCLIVersion("gh", "--version"),
 	}
@@ -295,6 +331,7 @@ func (m model) saveConfig() {
 	}
 	cfg.AutoRefreshMins = m.autoRefreshMins
 	cfg.BootFetch = m.bootFetch
+	cfg.DefaultEditor = m.defaultEditor
 	_ = config.Save(cfg)
 }
 
@@ -531,8 +568,8 @@ func openBrowser(url string) {
 }
 
 // Run starts the full-screen TUI program.
-func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string, bindings []keys.Binding, keyProblems []string) error {
-	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins, bootFetch, configPath, version, bindings, keyProblems)
+func Run(o Options) error {
+	m := New(o)
 	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err

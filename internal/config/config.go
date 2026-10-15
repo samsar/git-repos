@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/samsar/git-repos/internal/launch"
 )
 
 type Config struct {
@@ -16,6 +18,9 @@ type Config struct {
 	AutoRefreshMins int                `json:"auto_refresh_mins,omitempty"` // 0 = disabled
 	BootFetch       bool               `json:"boot_fetch,omitempty"`        // run git fetch at startup
 	Keys            map[string]KeyList `json:"keys,omitempty"`              // binding name → your keys, over its defaults
+	DefaultEditor   string             `json:"default_editor,omitempty"`    // the editor e opens a repo in
+	Editors         []launch.Editor    `json:"editors,omitempty"`           // yours, over the presets of their names
+	Terminal        []string           `json:"terminal,omitempty"`          // opens a window: {path} the repo, {cmd} the editor
 }
 
 // KeyList is a binding's keys in config.json: one key as a string

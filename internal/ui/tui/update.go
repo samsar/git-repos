@@ -213,6 +213,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case editorOpenedMsg:
+		return m.onEditorOpened(msg), nil
+
 	case shellReturnMsg:
 		m.statusMsg = ""
 		return m, nil
@@ -287,6 +290,11 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	if action == keys.Help {
 		return m.openHelp(), nil
+	}
+
+	// The editor picker takes every key while open
+	if m.showPicker {
+		return m.handlePickerKey(action, key)
 	}
 
 	// Delete confirmation intercepts all keys
@@ -415,6 +423,12 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 			return m, openShellCmd(filtered[m.cursor].Path)
 		}
 
+	case keys.OpenEditor:
+		return m.openInDefault()
+
+	case keys.PickEditor:
+		return m.openPicker(), nil
+
 	case keys.Delete:
 		if n > 0 {
 			m.showDeleteConfirm = true
@@ -518,6 +532,12 @@ func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
 			return m, openShellCmd(m.repos[m.cursor].Path)
 		}
 
+	case keys.OpenEditor:
+		return m.openInDefault()
+
+	case keys.PickEditor:
+		return m.openPicker(), nil
+
 	case keys.Refresh:
 		if len(m.repos) > 0 && !m.fetchingPR {
 			m.fetchingPR = true
@@ -556,10 +576,13 @@ func (m model) handleSettingsEditKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// settingsRows is how many settings the settings view lists.
+const settingsRows = 3
+
 func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case keys.MoveDown:
-		if m.settingsCursor < 1 {
+		if m.settingsCursor < settingsRows-1 {
 			m.settingsCursor++
 		}
 	case keys.MoveUp:
@@ -573,6 +596,8 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
 		case 1: // boot_fetch — toggle
 			m.bootFetch = !m.bootFetch
+		case 2: // default_editor — the next one
+			m.defaultEditor = m.nextDefaultEditor()
 		}
 	case keys.Edit:
 		if m.settingsCursor == 0 {

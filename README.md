@@ -101,6 +101,8 @@ git repos config reset
 | --- | ---------------------------------- |
 | `p` | Pull (git fetch) the selected repo |
 | `o` | Open the repo's PR in your browser |
+| `e` | Open the repo in your editor       |
+| `E` | Pick an editor to open the repo in |
 | `r` | Refresh all repos (runs fetch)     |
 | `?` | Toggle help overlay                |
 | `q` | Quit                               |
@@ -143,6 +145,30 @@ git repos keys check    # check config.json's keys: unknown names, keys bound tw
 ```
 
 If config.json's keys have a problem, the TUI uses the default keys and says so in its status bar.
+
+## Opening a repo in your editor
+
+`e` opens the selected repo in your default editor; `E` lists the editors to pick one. git-repos offers the editors and agents it finds on your PATH (Cursor, VS Code, Zed, Sublime Text, Claude Code, Codex, Neovim, Vim) and a shell in a new terminal window. Each opens one of three ways:
+
+- **gui**: as an app beside git-repos, which keeps running
+- **inline**: here, in git-repos's terminal, which comes back when you exit (vim, nvim)
+- **window**: in a new terminal window in the repo, which keeps a shell there once the command exits (claude, codex, a shell)
+
+Windows open in Ghostty, iTerm2 or Terminal on macOS, or in a new tmux window inside tmux. In any other terminal, window editors open inline instead, unless you give the command that opens a window (below). Pick the default in settings (`z`), or in config.json, which also adds or changes editors:
+
+```json
+{
+  "default_editor": "cursor",
+  "editors": [
+    {"name": "cursor", "cmd": ["cursor", "{path}"]},
+    {"name": "nvim", "cmd": ["nvim", "."], "mode": "inline"},
+    {"name": "claude", "cmd": ["claude", "--continue"], "mode": "window"}
+  ],
+  "terminal": ["wezterm", "start", "--cwd", "{path}", "--", "{cmd}"]
+}
+```
+
+`{path}` is the repo's directory, which is also where the command runs; in `terminal`, `{cmd}` is the editor's command. An editor of yours replaces the preset of its name. `git repos editors` lists them, and where windows open.
 
 ## Flags
 

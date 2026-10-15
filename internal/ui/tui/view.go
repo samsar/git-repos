@@ -54,6 +54,8 @@ var helpActions = []helpRow{
 	{keys.Pull, "Pull repo"},
 	{keys.PullAll, "Pull all repos"},
 	{keys.Shell, "Open shell in repo"},
+	{keys.OpenEditor, "Open repo in editor"},
+	{keys.PickEditor, "Open in… (pick one)"},
 	{keys.Refresh, "Refresh all"},
 	{keys.Delete, "Delete repo from disk"},
 	{keys.Settings, "Settings"},
@@ -209,6 +211,9 @@ func (m model) viewScanning() string {
 // ── List view ─────────────────────────────────────────────────────────────────
 
 func (m model) viewList() string {
+	if m.showPicker {
+		return m.viewPicker(m.listHeaderLines())
+	}
 	if m.showDeleteConfirm {
 		return m.viewConfirmDelete()
 	}
@@ -238,6 +243,9 @@ func (m model) viewList() string {
 func (m model) viewDetail() string {
 	if len(m.repos) == 0 || m.cursor >= len(m.repos) {
 		return ""
+	}
+	if m.showPicker {
+		return m.viewPicker(m.detailInfoLines())
 	}
 	var b strings.Builder
 	b.WriteString(m.renderHeader3Zone(m.detailInfoLines()))
@@ -289,7 +297,12 @@ func (m model) viewHelp() string {
 		if e.name == selected {
 			mark, ds = markStyle.Render("›"), selStyle
 		}
-		return fill.Width(w).Render(mark + k + fill.Render(strings.Repeat(" ", pad)) + ds.Render(e.desc))
+		// Cut what it does to the column, rather than wrap the row.
+		desc := ""
+		if descW := w - 1 - kw - pad; descW >= 2 {
+			desc = trunc(e.desc, descW)
+		}
+		return fill.Width(w).MaxWidth(w).Render(mark + k + fill.Render(strings.Repeat(" ", pad)) + ds.Render(desc))
 	}
 
 	// Top bar: on the left, the selected binding, or the rebinding under
@@ -647,11 +660,11 @@ func (m model) actionLinesFor(state viewState) []string {
 
 	var col1, col2 []act
 	if state == stateDetail {
-		col1 = acts(helpRow{keys.Back, "Back to list"}, helpRow{name: keys.OpenPR}, helpRow{name: keys.OpenGitHub}, helpRow{name: keys.Pull})
+		col1 = acts(helpRow{keys.Back, "Back to list"}, helpRow{name: keys.OpenPR}, helpRow{name: keys.OpenGitHub}, helpRow{name: keys.Pull}, helpRow{name: keys.OpenEditor})
 		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.Refresh}, helpRow{name: keys.Quit}, helpRow{name: keys.Help})
 	} else {
 		col1 = acts(helpRow{name: keys.Details}, helpRow{name: keys.Search}, helpRow{name: keys.OpenPR}, helpRow{name: keys.Pull}, helpRow{name: keys.PullAll})
-		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.Delete}, helpRow{name: keys.Refresh}, helpRow{name: keys.Settings}, helpRow{name: keys.Help})
+		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.OpenEditor}, helpRow{name: keys.Delete}, helpRow{name: keys.Refresh}, helpRow{name: keys.Settings}, helpRow{name: keys.Help})
 	}
 
 	maxKeyWFor := func(acts []act) int {
@@ -1171,9 +1184,14 @@ func (m model) viewSettings() string {
 		kind  string // "int" or "bool"
 		val   string
 	}
+	editorName := "none found"
+	if e, ok := m.theDefaultEditor(); ok {
+		editorName = e.Name
+	}
 	rows := []settingRow{
 		{"Auto-refresh (mins)", "Re-scan all repos on a timer. 0 = disabled.", "int", strconv.Itoa(m.autoRefreshMins)},
 		{"Fetch on startup", "Run git fetch in each repo at startup.", "bool", boolStr(m.bootFetch)},
+		{"Default editor", "What " + m.keys.first(keys.OpenEditor) + " opens a repo in; " + m.keys.first(keys.PickEditor) + " picks another. git repos editors lists them.", "choice", editorName},
 	}
 
 	const labelW = 22

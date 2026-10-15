@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
+	"github.com/samsar/git-repos/internal/launch"
 	"github.com/samsar/git-repos/internal/ui/plain"
 	"github.com/samsar/git-repos/internal/ui/tui"
 	"github.com/spf13/cobra"
@@ -84,15 +87,27 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// TUI mode
-	autoRefreshMins := 0
-	bootFetch := false
-	if cfg != nil {
-		autoRefreshMins = cfg.AutoRefreshMins
-		bootFetch = cfg.BootFetch
+	if cfg == nil {
+		cfg = &config.Config{}
 	}
-	doFetch := flagFetch || bootFetch
 	bindings, keyProblems := keys.FromConfig(cfg.KeyMap())
-	return tui.Run(scanDirs, doFetch, !flagNoPRs, hidden, autoRefreshMins, bootFetch, config.Path(), Version, bindings, keyProblems)
+	opener, openerOK := launch.DetectOpener(cfg.Terminal, os.Getenv, runtime.GOOS)
+	return tui.Run(tui.Options{
+		Dirs:            scanDirs,
+		Fetch:           flagFetch || cfg.BootFetch,
+		PRs:             !flagNoPRs,
+		Hidden:          hidden,
+		AutoRefreshMins: cfg.AutoRefreshMins,
+		BootFetch:       cfg.BootFetch,
+		ConfigPath:      config.Path(),
+		Version:         Version,
+		Bindings:        bindings,
+		KeyProblems:     keyProblems,
+		Editors:         launch.Available(cfg.Editors, exec.LookPath),
+		DefaultEditor:   cfg.DefaultEditor,
+		Opener:          opener,
+		OpenerOK:        openerOK,
+	})
 }
 
 func buildHiddenSet(cfg *config.Config) map[string]bool {
