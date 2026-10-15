@@ -5,13 +5,11 @@ package launch
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -185,29 +183,24 @@ const earlyExit = time.Second
 // startDetached starts cmd detached and watches it for earlyExit: one
 // that exits with an error by then failed, and the error says why, from
 // the first line of its stderr; one still running, or done without an
-// error (a CLI handing the repo to its app), started. Its stderr is
-// drained for as long as it writes, its first 4 KB kept, so a program
-// that writes a lot neither blocks nor grows git-repos.
+// error (a CLI handing the repo to its app), started.
+//
+// Its stderr is a file, never a pipe git-repos reads: a pipe would lose
+// its reader as git-repos quits, and a program writing to it then would
+// die of SIGPIPE. The file is removed as the watch ends; a program still
+// running writes on to it unseen, and its space comes back as it exits.
 func startDetached(cmd *exec.Cmd) error {
 	detach(cmd)
-	r, w, err := os.Pipe()
+	errFile, err := os.CreateTemp("", "git-repos-start-*.log")
 	if err != nil {
 		return err
 	}
-	cmd.Stderr = w
+	defer os.Remove(errFile.Name())
+	defer errFile.Close()
+	cmd.Stderr = errFile
 	if err := cmd.Start(); err != nil {
-		r.Close()
-		w.Close()
 		return err
 	}
-	w.Close()
-	stderr := &headBuffer{}
-	drained := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(stderr, r)
-		r.Close()
-		close(drained)
-	}()
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	select {
@@ -215,36 +208,12 @@ func startDetached(cmd *exec.Cmd) error {
 		if err == nil {
 			return nil
 		}
-		select { // what it said, unless a child of its holds stderr open
-		case <-drained:
-		case <-time.After(100 * time.Millisecond):
-		}
-		return fmt.Errorf("%s: %s", filepath.Base(cmd.Args[0]), firstLine(stderr.String(), err))
+		head := make([]byte, 4096)
+		n, _ := errFile.ReadAt(head, 0)
+		return fmt.Errorf("%s: %s", filepath.Base(cmd.Args[0]), firstLine(string(head[:n]), err))
 	case <-time.After(earlyExit):
 		return nil
 	}
-}
-
-// headBuffer keeps the first 4 KB written to it, and takes the rest
-// without keeping it.
-type headBuffer struct {
-	mu sync.Mutex
-	b  []byte
-}
-
-func (h *headBuffer) Write(p []byte) (int, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if room := 4096 - len(h.b); room > 0 {
-		h.b = append(h.b, p[:min(len(p), room)]...)
-	}
-	return len(p), nil
-}
-
-func (h *headBuffer) String() string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return string(h.b)
 }
 
 // InlineCmd is the command running e in the repo at path, for git-repos

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strconv"
 
 	"charm.land/bubbles/v2/spinner"
@@ -260,8 +261,10 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// A prompt answers its own keys first, whatever your keys bind them
 	// to: y and enter confirm a delete, y and n answer the help's swap
 	// question, and 1 to 9 pick an editor. Quit quits from any other key.
-	if m.showDeleteConfirm {
+	if m.showDeleteConfirm && !m.showHelp {
 		switch {
+		case action == keys.Help: // the help over it, as before it
+			return m.openHelp(), nil
 		case key == "y" || key == "enter":
 			filtered := m.displayRepos()
 			if len(filtered) > 0 && m.cursor < len(filtered) {
@@ -475,7 +478,7 @@ func (m model) matchPRs() model {
 
 // openDetail shows the detail view of m.repos[i], loading its commits.
 func (m model) openDetail(i int) (tea.Model, tea.Cmd) {
-	m.cursor = i
+	m.cursor, m.detailPath = i, m.repos[i].Path
 	m.state = stateDetail
 	m.commitsLoaded = false
 	m.detailCommits = nil
@@ -631,18 +634,22 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
 		}
 	case keys.Back:
-		// Back to the page the settings were opened from.
 		m.state = stateList
-		if m.settingsFrom == stateDetail && m.cursor < len(m.repos) {
-			m.state = stateDetail
-			m.detailVP.SetContent(m.renderDetailContent())
-		}
 		if err := m.saveConfig(); err != nil {
 			m.statusMsg = "couldn't save settings: " + err.Error()
 		}
 		var cmds []tea.Cmd
 		if m.autoRefreshMins > 0 {
 			cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
+		}
+		// Back to the detail view they were opened from, opened again on
+		// its repo, wherever pulls and lookups meanwhile sorted it, at the
+		// terminal's size now; the list when the repo has gone.
+		if m.settingsFrom == stateDetail {
+			if i := slices.IndexFunc(m.repos, func(r git.RepoInfo) bool { return r.Path == m.detailPath }); i >= 0 {
+				next, cmd := m.openDetail(i)
+				return next, tea.Batch(append(cmds, cmd)...)
+			}
 		}
 		return m, tea.Batch(cmds...)
 	}

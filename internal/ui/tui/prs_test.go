@@ -271,3 +271,43 @@ func mustOpenDetail(m model, name string) (model, bool) {
 	}
 	return m, false
 }
+
+// The settings, opened from a detail view, go back to it on its repo, at
+// the terminal's size now, whatever re-sorted the repos and resized the
+// terminal meanwhile.
+func TestSettingsBackToDetail(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := withPRs(t)
+	m.cursor = 0
+	m = resize(press(m, "enter"), 140, 40)
+	shown := m.repos[m.cursor].Name
+	m = press(m, "z")
+	m = resize(m, 90, 25)
+	m.repos[0], m.repos[1] = m.repos[1], m.repos[0] // a pull re-sorted them
+	m = press(m, "esc")
+	if m.state != stateDetail || m.repos[m.cursor].Name != shown {
+		t.Fatalf("back on state %d, repo %s; want the detail view of %s", m.state, m.repos[m.cursor].Name, shown)
+	}
+	if w, h := m.detailVP.Width(), m.detailVP.Height(); w != m.width || h != m.detailVPHeight() {
+		t.Errorf("viewport %dx%d, want %dx%d", w, h, m.width, m.detailVPHeight())
+	}
+	rows := strings.Split(m.View().Content, "\n")
+	if len(rows) != 25 {
+		t.Errorf("%d rows on a 25-row terminal", len(rows))
+	}
+}
+
+// ? over the delete confirmation shows the help, and closing it comes
+// back to the confirmation.
+func TestHelpOverDeleteConfirm(t *testing.T) {
+	m := withPRs(t)
+	m.showDeleteConfirm = true
+	m = press(m, "?")
+	if !m.showHelp || !m.showDeleteConfirm {
+		t.Fatalf("help %v, confirm %v", m.showHelp, m.showDeleteConfirm)
+	}
+	m = press(m, "esc")
+	if m.showHelp || !m.showDeleteConfirm {
+		t.Errorf("after esc: help %v, confirm %v", m.showHelp, m.showDeleteConfirm)
+	}
+}

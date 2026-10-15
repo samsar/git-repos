@@ -3,7 +3,9 @@ package launch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -293,4 +295,32 @@ func TestTmuxWindowErrors(t *testing.T) {
 	if err := tmuxWindow(context.Background(), e, t.TempDir()); err == nil || err.Error() != "tmux: no server running on /tmp/tmux-501/default" {
 		t.Errorf("a failing tmux: %v", err)
 	}
+}
+
+// A program git-repos starts outlives it, writing to stderr after it has
+// quit too: no pipe whose reader went with git-repos kills it with
+// SIGPIPE. A child of the test, standing in for git-repos, starts it and
+// exits at once.
+func TestStartGUIOutlivesGitRepos(t *testing.T) {
+	if dir := os.Getenv("GIT_REPOS_TEST_START_IN"); dir != "" {
+		e := Editor{Cmd: []string{"sh", "-c", `sleep 2; echo late >&2; echo late >&2; touch survived`}}
+		if err := StartGUI(e, dir); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	dir := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStartGUIOutlivesGitRepos$")
+	cmd.Env = append(os.Environ(), "GIT_REPOS_TEST_START_IN="+dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the stand-in for git-repos: %v: %s", err, out)
+	}
+	for range 50 {
+		if _, err := os.Stat(filepath.Join(dir, "survived")); err == nil {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Error("the program died once git-repos had quit")
 }

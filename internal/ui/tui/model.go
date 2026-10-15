@@ -218,6 +218,9 @@ type model struct {
 	// the PR page, when listCursor is the list's cursor to put back.
 	detailFrom viewState
 	listCursor int
+	// detailPath is the repo the detail view shows, by path, which the
+	// settings opened from it go back to.
+	detailPath string
 
 	// search
 	searching   bool
