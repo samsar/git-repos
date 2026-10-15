@@ -49,7 +49,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "warning: no config found; defaulting scan directory to current working directory: %s\n", cwd)
 			scanDirs = []string{cwd}
 		default:
-			cfg, err = config.PromptSetup()
+			cfg, err = config.PromptSetup(cfg)
 			if err != nil {
 				return err
 			}

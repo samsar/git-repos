@@ -119,7 +119,9 @@ git repos config reset
 
 ### Changing keys
 
-Every key above is a default. Give any action keys of your own in `~/.config/git-repos/config.json`, by its name:
+Every key above is a default. To change one from the TUI, open the help (`?`), select the action with `j`/`k`, press `r`, then the new key. A free key is saved at once; one another action already has is offered as a swap. `backspace` puts the selected action back to its default.
+
+Or give any action keys of your own in `~/.config/git-repos/config.json`, by its name:
 
 ```json
 {

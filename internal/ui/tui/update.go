@@ -256,6 +256,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// While the help waits for a new key, every key goes to it, ctrl+c too
+	if m.showHelp && m.help.stage == recording {
+		return m.record(key), nil
+	}
+
 	// ctrl+c always quits, even in search mode
 	if key == keys.CtrlC {
 		return m, tea.Quit
@@ -275,15 +280,13 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// Help overlay intercepts all keys
+	// The help, where you also rebind keys, takes every key while open
 	if m.showHelp {
-		m.showHelp = false
-		return m, nil
+		return m.handleHelpKey(action, key)
 	}
 
 	if action == keys.Help {
-		m.showHelp = true
-		return m, nil
+		return m.openHelp(), nil
 	}
 
 	// Delete confirmation intercepts all keys

@@ -202,8 +202,10 @@ type model struct {
 
 	// ui
 	keys              keymap
+	keyProblems       []string // config.json's keys' problems, the defaults in use
 	spinner           spinner.Model
 	showHelp          bool
+	help              keysHelp
 	showDeleteConfirm bool
 
 	// settings
@@ -226,6 +228,7 @@ func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefresh
 	}
 	return model{
 		keys:            keymap{bindings: bindings},
+		keyProblems:     keyProblems,
 		statusMsg:       statusMsg,
 		scanDirs:        dirs,
 		doFetch:         doFetch,

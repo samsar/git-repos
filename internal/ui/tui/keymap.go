@@ -51,6 +51,14 @@ func (k keymap) keysOf(name string) []string {
 	return out
 }
 
+// binding is the binding named name, and whether there is one.
+func (k keymap) binding(name string) (keys.Binding, bool) {
+	if i := slices.IndexFunc(k.all(), func(b keys.Binding) bool { return b.Name == name }); i >= 0 {
+		return k.all()[i], true
+	}
+	return keys.Binding{}, false
+}
+
 // label is binding name's label; name itself for one there isn't.
 func (k keymap) label(name string) string {
 	if i := slices.IndexFunc(k.all(), func(b keys.Binding) bool { return b.Name == name }); i >= 0 {
@@ -94,6 +102,9 @@ func keyCap(key string) string {
 
 // keyView is the view the keys act in now.
 func (m model) keyView() keys.View {
+	if m.showHelp {
+		return keys.ViewHelp
+	}
 	switch m.state {
 	case stateDetail:
 		return keys.ViewDetail

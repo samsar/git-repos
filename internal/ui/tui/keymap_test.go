@@ -17,6 +17,10 @@ func press(m model, key string) model {
 		msg = tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "esc":
 		msg = tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "backspace":
+		msg = tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "ctrl+c":
+		msg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	default:
 		msg.Code = []rune(key)[0]
 	}

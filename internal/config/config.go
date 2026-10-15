@@ -105,8 +105,18 @@ func Save(cfg *Config) error {
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
-func PromptSetup() (*Config, error) {
-	fmt.Printf("\nNo configuration found.\n")
+// PromptSetup asks which directory to scan and saves it into existing,
+// keeping everything else it says (such as keys rebound from the TUI
+// before any directory was set); existing may be nil.
+func PromptSetup(existing *Config) (*Config, error) {
+	cfg := &Config{}
+	if existing == nil {
+		fmt.Printf("\nNo configuration found.\n")
+	} else {
+		copied := *existing
+		cfg = &copied
+		fmt.Printf("\nNo directory to scan is configured.\n")
+	}
 	fmt.Printf("Which directory contains your git repos?\n")
 	fmt.Printf("(press Enter to use the current directory each time)\n> ")
 
@@ -119,7 +129,7 @@ func PromptSetup() (*Config, error) {
 
 	if line == "" {
 		fmt.Println()
-		return &Config{}, nil
+		return cfg, nil
 	}
 
 	abs, err := filepath.Abs(ExpandHome(line))
@@ -130,7 +140,7 @@ func PromptSetup() (*Config, error) {
 		return nil, fmt.Errorf("directory not found: %s", abs)
 	}
 
-	cfg := &Config{Dirs: []string{abs}}
+	cfg.Dirs = []string{abs}
 	if err := Save(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not save config: %v\n", err)
 	} else {

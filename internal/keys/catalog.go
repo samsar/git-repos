@@ -10,10 +10,12 @@ const (
 	ViewList     View = "list"
 	ViewDetail   View = "detail"
 	ViewSettings View = "settings"
+	// ViewHelp is the help (?), where you also rebind the keys.
+	ViewHelp View = "help"
 )
 
 // Views is every view a key acts in, in the order git-repos lists them.
-var Views = []View{ViewList, ViewDetail, ViewSettings}
+var Views = []View{ViewList, ViewDetail, ViewSettings, ViewHelp}
 
 // Binding is one thing a key does, with the keys it takes now and where.
 type Binding struct {
@@ -71,13 +73,18 @@ const (
 	Back = "back"
 	Help = "help"
 	Quit = "quit"
+	// Rebind and Reset are the help's own: they rebind the key selected
+	// there, and put its defaults back.
+	Rebind = "rebind"
+	Reset  = "reset"
 )
 
 var (
 	inList   = []View{ViewList}
 	inDetail = []View{ViewDetail}
 	onRepos  = []View{ViewList, ViewDetail}
-	inAll    = []View{ViewList, ViewDetail, ViewSettings}
+	inAll    = []View{ViewList, ViewDetail, ViewSettings, ViewHelp}
+	inHelp   = []View{ViewHelp}
 )
 
 // catalog is every binding with its default keys: git-repos's keys as they
@@ -111,6 +118,8 @@ var catalog = []Binding{
 	{Name: Back, Label: "Back", Views: inAll},
 	{Name: Help, Label: "Help", Defaults: []string{"?"}, Views: inAll},
 	{Name: Quit, Label: "Quit", Defaults: []string{"q"}, Views: inAll},
+	{Name: Rebind, Label: "Rebind", Defaults: []string{"r"}, Views: inHelp},
+	{Name: Reset, Label: "Reset to default", Defaults: []string{"backspace"}, Views: inHelp},
 }
 
 // reserved are the keys no binding takes, and what they do: each always

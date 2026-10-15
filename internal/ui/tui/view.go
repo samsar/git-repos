@@ -27,7 +27,9 @@ var logoLines = []string{
 
 // ── Help screen static data ───────────────────────────────────────────────────
 
-type helpEntry struct{ key, desc string }
+// helpEntry is one row of the help as drawn: its keys, what it does, and
+// the binding's name; a note has no keys.
+type helpEntry struct{ key, desc, name string }
 
 // helpRow is one row of the help or of a header's hints: a binding, by
 // name, and what it does there; its label when does is "". A row without
@@ -68,6 +70,10 @@ var helpSorts = []helpRow{
 	{keys.SortTime, "Time"},
 	{keys.SortPR, "PR"},
 	{"", "↵ again to reverse ▲▼"},
+	{"", ""},
+	{"", "In settings:"},
+	{keys.Toggle, "Toggle / Edit"},
+	{keys.Edit, "Edit a number"},
 }
 
 // helpEntries is rows as the help shows them: each binding's keys, and
@@ -77,11 +83,11 @@ func (m model) helpEntries(rows []helpRow) []helpEntry {
 	for i, r := range rows {
 		switch {
 		case r.name == "":
-			out[i] = helpEntry{"", r.does}
+			out[i] = helpEntry{"", r.does, ""}
 		case r.does == "":
-			out[i] = helpEntry{m.keys.caps(r.name), m.keys.label(r.name)}
+			out[i] = helpEntry{m.keys.caps(r.name), m.keys.label(r.name), r.name}
 		default:
-			out[i] = helpEntry{m.keys.caps(r.name), r.does}
+			out[i] = helpEntry{m.keys.caps(r.name), r.does, r.name}
 		}
 	}
 	return out
@@ -253,24 +259,76 @@ func (m model) viewHelp() string {
 	dStyle := lipgloss.NewStyle().Background(bg).Foreground(colorText)
 	noteStyle := lipgloss.NewStyle().Background(bg).Foreground(staleFg)
 
-	key := func(k string) string { return kStyle.Render("<" + k + ">") }
+	yoursStyle := lipgloss.NewStyle().Background(bg).Foreground(colorPurple)
+	markStyle := lipgloss.NewStyle().Background(bg).Foreground(colorCyan).Bold(true)
+	selStyle := lipgloss.NewStyle().Background(bg).Foreground(colorBrightWhite).Bold(true)
+	warnStyle := lipgloss.NewStyle().Background(bg).Foreground(attentionFg)
+	askStyle := lipgloss.NewStyle().Background(bg).Foreground(colorCyan)
 
 	colW := m.width / 3
 
+	selected := ""
+	if sel := helpSelectable(); m.help.row < len(sel) {
+		selected = sel[m.help.row]
+	}
+
+	// renderEntry draws a row: the selected one marked, keys of yours in
+	// the accent.
 	renderEntry := func(e helpEntry, w int) string {
 		if e.key == "" {
 			return fill.Width(w).Render(fill.Render("    ") + noteStyle.Render(e.desc))
 		}
-		k := key(e.key)
+		ks := kStyle
+		if b, ok := m.keys.binding(e.name); ok && b.Yours {
+			ks = yoursStyle
+		}
+		k := ks.Render("<" + e.key + ">")
 		kw := lipgloss.Width(k)
 		pad := max(0, 16-kw)
-		return fill.Width(w).Render(fill.Render(" ") + k + fill.Render(strings.Repeat(" ", pad)) + dStyle.Render(e.desc))
+		mark, ds := fill.Render(" "), dStyle
+		if e.name == selected {
+			mark, ds = markStyle.Render("›"), selStyle
+		}
+		return fill.Width(w).Render(mark + k + fill.Render(strings.Repeat(" ", pad)) + ds.Render(e.desc))
 	}
 
-	// Top bar
-	right := kStyle.Render("<esc>") + dStyle.Render(" Back ")
-	gapW := max(1, m.width-lipgloss.Width(right))
-	topBar := fill.Width(gapW).Render("") + right
+	// Top bar: on the left, the selected binding, or the rebinding under
+	// way; on the right, the help's own keys.
+	var right string
+	if m.help.stage == browsing {
+		for _, h := range []helpRow{{keys.Rebind, "Rebind"}, {keys.Reset, "Reset"}} {
+			if k := m.keys.first(h.name); k != "" {
+				right += kStyle.Render("<"+k+">") + dStyle.Render(" "+h.does+"  ")
+			}
+		}
+		right += kStyle.Render("<esc>") + dStyle.Render(" Back ")
+	} else {
+		right = kStyle.Render("<esc>") + dStyle.Render(" Cancel ")
+	}
+	left, leftStyle := "", noteStyle
+	switch {
+	case m.help.stage == recording && m.help.warn:
+		left, leftStyle = m.help.note+" · press another key", warnStyle
+	case m.help.stage == recording:
+		left, leftStyle = "press the new key for "+m.keys.label(selected), askStyle
+	case m.help.stage == asking:
+		left, leftStyle = m.help.note, askStyle
+	case m.help.note != "" && m.help.warn:
+		left, leftStyle = m.help.note, warnStyle
+	case m.help.note != "":
+		left, leftStyle = m.help.note, dStyle
+	default:
+		if b, ok := m.selectedBinding(); ok {
+			left = m.aboutBinding(b)
+		}
+	}
+	leftW := max(0, m.width-lipgloss.Width(right)-1)
+	if leftW < 2 {
+		left = ""
+	} else {
+		left = " " + trunc(left, leftW-1)
+	}
+	topBar := fill.Width(leftW).Render(leftStyle.Render(left)) + fill.Render(" ") + right
 
 	// Separator with "Help" centered
 	const helpLabel = " Help "
@@ -1181,7 +1239,7 @@ func (m model) viewSettings() string {
 	}
 	b.WriteString(blank)
 	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Manage with: git repos config add/remove/hide/unhide")) + "\n")
-	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Keys: change them in config.json's keys; git repos keys lists them")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Keys: rebind them in the help ("+m.keys.first(keys.Help)+"), or in config.json's keys")) + "\n")
 
 	b.WriteString(blank)
 	const keysLabel = " Keys "

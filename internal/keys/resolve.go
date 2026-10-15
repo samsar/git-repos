@@ -195,6 +195,8 @@ func ViewWords(v View) string {
 		return "in the detail view"
 	case ViewSettings:
 		return "in settings"
+	case ViewHelp:
+		return "in the help"
 	}
 	return "in " + string(v)
 }
