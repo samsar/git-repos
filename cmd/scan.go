@@ -8,6 +8,7 @@ import (
 
 	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/ui/plain"
 	"github.com/samsar/git-repos/internal/ui/tui"
 	"github.com/spf13/cobra"
@@ -90,7 +91,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 		bootFetch = cfg.BootFetch
 	}
 	doFetch := flagFetch || bootFetch
-	return tui.Run(scanDirs, doFetch, !flagNoPRs, hidden, autoRefreshMins, bootFetch, config.Path(), Version)
+	bindings, keyProblems := keys.FromConfig(cfg.KeyMap())
+	return tui.Run(scanDirs, doFetch, !flagNoPRs, hidden, autoRefreshMins, bootFetch, config.Path(), Version, bindings, keyProblems)
 }
 
 func buildHiddenSet(cfg *config.Config) map[string]bool {

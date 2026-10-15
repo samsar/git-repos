@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/keys"
 )
 
 // logoLines is the ASCII-art logo rendered in the top-right corner.
@@ -28,39 +29,62 @@ var logoLines = []string{
 
 type helpEntry struct{ key, desc string }
 
-var helpNav = []helpEntry{
-	{"↑↓/jk", "Navigate"},
-	{"ctrl-f", "Page Down"},
-	{"ctrl-b", "Page Up"},
-	{"g", "Top"},
-	{"G", "Bottom"},
-	{"enter", "Detail view"},
-	{"esc", "Back / Close"},
+// helpRow is one row of the help or of a header's hints: a binding, by
+// name, and what it does there; its label when does is "". A row without
+// a name is a note.
+type helpRow struct{ name, does string }
+
+var helpNav = []helpRow{
+	{keys.MoveUp, "Up"},
+	{keys.MoveDown, "Down"},
+	{keys.PageDown, "Page Down"},
+	{keys.PageUp, "Page Up"},
+	{keys.First, "Top"},
+	{keys.Last, "Bottom"},
+	{keys.Details, "Detail view"},
+	{keys.Back, "Back / Close"},
 }
 
-var helpActions = []helpEntry{
-	{"/", "Search / filter list"},
-	{"o", "Open PR in browser"},
-	{"g", "Open repo in GitHub"},
-	{"p", "Pull repo"},
-	{"ctrl-p", "Pull all repos"},
-	{"s", "Open shell in repo"},
-	{"r", "Refresh all"},
-	{"ctrl-d", "Delete repo from disk"},
-	{"z", "Settings"},
-	{"q", "Quit"},
-	{"?", "Help"},
+var helpActions = []helpRow{
+	{keys.Search, "Search / filter list"},
+	{keys.OpenPR, "Open PR in browser"},
+	{keys.OpenGitHub, "Open repo in GitHub"},
+	{keys.Pull, "Pull repo"},
+	{keys.PullAll, "Pull all repos"},
+	{keys.Shell, "Open shell in repo"},
+	{keys.Refresh, "Refresh all"},
+	{keys.Delete, "Delete repo from disk"},
+	{keys.Settings, "Settings"},
+	{keys.Quit, "Quit"},
+	{keys.Help, "Help"},
 }
 
-var helpSorts = []helpEntry{
-	{"0", "Status (default)"},
-	{"shift-N", "Name"},
-	{"shift-B", "Branch"},
-	{"shift-S", "Sync"},
-	{"shift-C", "Changes"},
-	{"shift-T", "Time"},
-	{"shift-P", "PR"},
+var helpSorts = []helpRow{
+	{keys.SortStatus, "Status (default)"},
+	{keys.SortName, "Name"},
+	{keys.SortBranch, "Branch"},
+	{keys.SortSync, "Sync"},
+	{keys.SortChanges, "Changes"},
+	{keys.SortTime, "Time"},
+	{keys.SortPR, "PR"},
 	{"", "↵ again to reverse ▲▼"},
+}
+
+// helpEntries is rows as the help shows them: each binding's keys, and
+// what it does.
+func (m model) helpEntries(rows []helpRow) []helpEntry {
+	out := make([]helpEntry, len(rows))
+	for i, r := range rows {
+		switch {
+		case r.name == "":
+			out[i] = helpEntry{"", r.does}
+		case r.does == "":
+			out[i] = helpEntry{m.keys.caps(r.name), m.keys.label(r.name)}
+		default:
+			out[i] = helpEntry{m.keys.caps(r.name), r.does}
+		}
+	}
+	return out
 }
 
 type iconDesc struct{ icon, meaning string }
@@ -269,17 +293,18 @@ func (m model) viewHelp() string {
 	b.WriteString(colHeaders + "\n")
 	b.WriteString(colUnders + "\n")
 
-	maxRows := max(max(len(helpNav), len(helpActions)), len(helpSorts))
+	nav, actions, sorts := m.helpEntries(helpNav), m.helpEntries(helpActions), m.helpEntries(helpSorts)
+	maxRows := max(max(len(nav), len(actions)), len(sorts))
 	for i := 0; i < maxRows; i++ {
 		var e1, e2, e3 helpEntry
-		if i < len(helpNav) {
-			e1 = helpNav[i]
+		if i < len(nav) {
+			e1 = nav[i]
 		}
-		if i < len(helpActions) {
-			e2 = helpActions[i]
+		if i < len(actions) {
+			e2 = actions[i]
 		}
-		if i < len(helpSorts) {
-			e3 = helpSorts[i]
+		if i < len(sorts) {
+			e3 = sorts[i]
 		}
 		b.WriteString(renderEntry(e1, colW) + renderEntry(e2, colW) + renderEntry(e3, m.width-2*colW) + "\n")
 	}
@@ -546,35 +571,29 @@ func (m model) actionLines() []string {
 func (m model) actionLinesFor(state viewState) []string {
 	type act struct{ key, desc string }
 
+	// acts is rows as hints: each binding's first key and what it does,
+	// leaving out one without a key.
+	acts := func(rows ...helpRow) []act {
+		var out []act
+		for _, r := range rows {
+			if k := m.keys.first(r.name); k != "" {
+				desc := r.does
+				if desc == "" {
+					desc = m.keys.label(r.name)
+				}
+				out = append(out, act{k, desc})
+			}
+		}
+		return out
+	}
+
 	var col1, col2 []act
 	if state == stateDetail {
-		col1 = []act{
-			{"esc", "Back to list"},
-			{"o", "Open PR"},
-			{"g", "Open in GitHub"},
-			{"p", "Pull repo"},
-		}
-		col2 = []act{
-			{"s", "Open shell"},
-			{"r", "Refresh"},
-			{"q", "Quit"},
-			{"?", "Help"},
-		}
+		col1 = acts(helpRow{keys.Back, "Back to list"}, helpRow{name: keys.OpenPR}, helpRow{name: keys.OpenGitHub}, helpRow{name: keys.Pull})
+		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.Refresh}, helpRow{name: keys.Quit}, helpRow{name: keys.Help})
 	} else {
-		col1 = []act{
-			{"enter", "Detail view"},
-			{"/", "Search"},
-			{"o", "Open PR"},
-			{"p", "Pull repo"},
-			{"ctrl+p", "Pull all"},
-		}
-		col2 = []act{
-			{"s", "Open shell"},
-			{"ctrl+d", "Delete repo"},
-			{"r", "Refresh"},
-			{"z", "Settings"},
-			{"?", "Help"},
-		}
+		col1 = acts(helpRow{name: keys.Details}, helpRow{name: keys.Search}, helpRow{name: keys.OpenPR}, helpRow{name: keys.Pull}, helpRow{name: keys.PullAll})
+		col2 = acts(helpRow{name: keys.Shell}, helpRow{name: keys.Delete}, helpRow{name: keys.Refresh}, helpRow{name: keys.Settings}, helpRow{name: keys.Help})
 	}
 
 	maxKeyWFor := func(acts []act) int {
@@ -748,7 +767,11 @@ func (m model) renderStatusBar() string {
 	if m.searchQuery != "" {
 		queryStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorCyan)
 		hintStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorFaintGray)
-		content := queryStyle.Render("  /"+m.searchQuery) + hintStyle.Render("  (/ to edit · esc to clear)")
+		hint := "  (esc to clear)"
+		if k := m.keys.first(keys.Search); k != "" {
+			hint = "  (" + k + " to edit · esc to clear)"
+		}
+		content := queryStyle.Render("  /"+m.searchQuery) + hintStyle.Render(hint)
 		return style.Width(m.width).Render(content)
 	}
 
@@ -1158,6 +1181,7 @@ func (m model) viewSettings() string {
 	}
 	b.WriteString(blank)
 	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Manage with: git repos config add/remove/hide/unhide")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+dimS.Render("Keys: change them in config.json's keys; git repos keys lists them")) + "\n")
 
 	b.WriteString(blank)
 	const keysLabel = " Keys "
@@ -1166,10 +1190,7 @@ func (m model) viewSettings() string {
 		boldBg.Render(keysLabel) +
 		sepStyle.Render(strings.Repeat("─", m.width-kw-len(keysLabel))) + "\n")
 	b.WriteString(blank)
-	settingsKeys := []helpEntry{
-		{"enter", "Toggle / Edit"},
-		{"esc", "Save & back"},
-	}
+	settingsKeys := m.helpEntries([]helpRow{{name: keys.Toggle}, {keys.Back, "Save & back"}})
 	for _, sk := range settingsKeys {
 		keyStr := kStyle.Render("<" + sk.key + ">")
 		pad := max(0, 18-lipgloss.Width(keyStr))

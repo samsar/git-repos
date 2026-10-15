@@ -11,10 +11,57 @@ import (
 )
 
 type Config struct {
-	Dirs            []string `json:"dirs"`
-	Hidden          []string `json:"hidden,omitempty"`
-	AutoRefreshMins int      `json:"auto_refresh_mins,omitempty"` // 0 = disabled
-	BootFetch       bool     `json:"boot_fetch,omitempty"`        // run git fetch at startup
+	Dirs            []string           `json:"dirs"`
+	Hidden          []string           `json:"hidden,omitempty"`
+	AutoRefreshMins int                `json:"auto_refresh_mins,omitempty"` // 0 = disabled
+	BootFetch       bool               `json:"boot_fetch,omitempty"`        // run git fetch at startup
+	Keys            map[string]KeyList `json:"keys,omitempty"`              // binding name → your keys, over its defaults
+}
+
+// KeyList is a binding's keys in config.json: one key as a string
+// ("search": "f"), several as a list ("move_down": ["j", "x"]), or none
+// as an empty list or null.
+type KeyList []string
+
+func (k *KeyList) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*k = KeyList{}
+		return nil
+	}
+	var one string
+	if err := json.Unmarshal(data, &one); err == nil {
+		*k = KeyList{one}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(data, &many); err != nil {
+		return fmt.Errorf("a binding's keys are a key, such as \"f\", or a list of them, such as [\"j\", \"down\"]")
+	}
+	*k = KeyList(many)
+	return nil
+}
+
+func (k KeyList) MarshalJSON() ([]byte, error) {
+	switch len(k) {
+	case 0:
+		return []byte("[]"), nil
+	case 1:
+		return json.Marshal(k[0])
+	}
+	return json.Marshal([]string(k))
+}
+
+// KeyMap is c's keys by binding name, as package keys takes them; nil
+// for a nil config.
+func (c *Config) KeyMap() map[string][]string {
+	if c == nil {
+		return nil
+	}
+	out := make(map[string][]string, len(c.Keys))
+	for name, ks := range c.Keys {
+		out[name] = ks
+	}
+	return out
 }
 
 func Path() string {
@@ -26,7 +73,13 @@ func Path() string {
 }
 
 func Load() (*Config, error) {
-	data, err := os.ReadFile(Path())
+	return LoadFrom(Path())
+}
+
+// LoadFrom reads the config file at path; nil, with no error, when there
+// is none.
+func LoadFrom(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

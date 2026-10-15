@@ -117,6 +117,31 @@ git repos config reset
 | `T` | Last changed |
 | `P` | PR           |
 
+### Changing keys
+
+Every key above is a default. Give any action keys of your own in `~/.config/git-repos/config.json`, by its name:
+
+```json
+{
+  "dirs": ["/Users/you/projects"],
+  "keys": {
+    "search": "f",
+    "pull_all": "ctrl+u",
+    "move_down": ["j", "down"]
+  }
+}
+```
+
+A key is a character (`a`, `A`, `?`), a named key (`enter`, `tab`, `up`, `f1`), or ctrl with a letter (`ctrl+d`). `[]` leaves an action without a key. `ctrl+c` always quits and `esc` always goes back. Keys are per view (the list, the detail view, settings), so one key can mean different things in different views, but only one thing in each.
+
+```bash
+git repos keys          # every key, view by view, with action names and yours marked
+git repos keys --free   # the keys still free in each view
+git repos keys check    # check config.json's keys: unknown names, keys bound twice, …
+```
+
+If config.json's keys have a problem, the TUI uses the default keys and says so in its status bar.
+
 ## Flags
 
 | Flag         | Description                                                                |

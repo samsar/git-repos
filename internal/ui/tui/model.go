@@ -2,10 +2,10 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +16,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/config"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/version"
 )
 
@@ -200,6 +201,7 @@ type model struct {
 	searchQuery string
 
 	// ui
+	keys              keymap
 	spinner           spinner.Model
 	showHelp          bool
 	showDeleteConfirm bool
@@ -217,8 +219,14 @@ type model struct {
 	updateAvailable bool
 }
 
-func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) model {
+func New(dirs []string, doFetch, noPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string, bindings []keys.Binding, keyProblems []string) model {
+	statusMsg := ""
+	if n := len(keyProblems); n > 0 {
+		statusMsg = fmt.Sprintf("config.json's keys have %d problem(s), so the default keys are in use: run git repos keys check", n)
+	}
 	return model{
+		keys:            keymap{bindings: bindings},
+		statusMsg:       statusMsg,
 		scanDirs:        dirs,
 		doFetch:         doFetch,
 		noPRs:           noPRs,
@@ -271,19 +279,19 @@ func detectCLIVersion(name string, args ...string) string {
 	return strings.TrimSpace(line)
 }
 
-// saveConfig persists current settings to disk.
+// saveConfig persists the settings the TUI changes to disk, keeping
+// everything else config.json says (your keys, and dirs given as
+// arguments rather than from the file).
 func (m model) saveConfig() {
-	hidden := make([]string, 0, len(m.hidden))
-	for name := range m.hidden {
-		hidden = append(hidden, name)
+	cfg, err := config.Load()
+	if err != nil {
+		return
 	}
-	sort.Strings(hidden)
-	cfg := &config.Config{
-		Dirs:            m.scanDirs,
-		Hidden:          hidden,
-		AutoRefreshMins: m.autoRefreshMins,
-		BootFetch:       m.bootFetch,
+	if cfg == nil {
+		cfg = &config.Config{}
 	}
+	cfg.AutoRefreshMins = m.autoRefreshMins
+	cfg.BootFetch = m.bootFetch
 	_ = config.Save(cfg)
 }
 
@@ -520,8 +528,8 @@ func openBrowser(url string) {
 }
 
 // Run starts the full-screen TUI program.
-func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string) error {
-	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins, bootFetch, configPath, version)
+func Run(dirs []string, doFetch, fetchPRs bool, hidden map[string]bool, autoRefreshMins int, bootFetch bool, configPath, version string, bindings []keys.Binding, keyProblems []string) error {
+	m := New(dirs, doFetch, !fetchPRs, hidden, autoRefreshMins, bootFetch, configPath, version, bindings, keyProblems)
 	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err

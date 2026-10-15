@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/version"
 )
 
@@ -256,17 +257,21 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	// ctrl+c always quits, even in search mode
-	if key == "ctrl+c" {
+	if key == keys.CtrlC {
 		return m, tea.Quit
 	}
 
-	// Search mode intercepts all remaining keys while active
+	// Text fields take every remaining key while active
 	if m.searching {
 		return m.handleSearchKey(msg)
 	}
+	if m.settingsEditing {
+		return m.handleSettingsEditKey(key)
+	}
 
-	// Global: quit
-	if key == "q" {
+	action := m.keys.in(m.keyView(), key)
+
+	if action == keys.Quit {
 		return m, tea.Quit
 	}
 
@@ -276,8 +281,7 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Global: toggle help
-	if key == "?" {
+	if action == keys.Help {
 		m.showHelp = true
 		return m, nil
 	}
@@ -300,22 +304,22 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch m.state {
 	case stateList:
-		return m.handleListKey(key)
+		return m.handleListKey(action)
 	case stateDetail:
-		return m.handleDetailKey(key)
+		return m.handleDetailKey(action)
 	case stateSettings:
-		return m.handleSettingsKey(key)
+		return m.handleSettingsKey(action)
 	}
 	return m, nil
 }
 
-func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
+func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 	filtered := m.displayRepos()
 	n := len(filtered)
 	visRows := m.visibleRows()
 
-	switch key {
-	case "up", "k":
+	switch action {
+	case keys.MoveUp:
 		if m.cursor > 0 {
 			m.cursor--
 			if m.cursor < m.offset {
@@ -323,7 +327,7 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "down", "j":
+	case keys.MoveDown:
 		if m.cursor < n-1 {
 			m.cursor++
 			if m.cursor >= m.offset+visRows {
@@ -331,15 +335,15 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "g", "home":
+	case keys.First:
 		m.cursor = 0
 		m.offset = 0
 
-	case "G", "end":
+	case keys.Last:
 		m.cursor = max(0, n-1)
 		m.offset = clampOffset(n, visRows)
 
-	case "ctrl+f":
+	case keys.PageDown:
 		m.cursor += visRows
 		if m.cursor >= n {
 			m.cursor = n - 1
@@ -348,7 +352,7 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			m.offset = m.cursor - visRows + 1
 		}
 
-	case "ctrl+b":
+	case keys.PageUp:
 		m.cursor -= visRows
 		if m.cursor < 0 {
 			m.cursor = 0
@@ -357,12 +361,12 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			m.offset = m.cursor
 		}
 
-	case "/":
+	case keys.Search:
 		m.searching = true
 		// Keep existing query so user can refine it; cursor stays put.
 		return m, nil
 
-	case "enter":
+	case keys.Details:
 		if n == 0 {
 			return m, nil
 		}
@@ -384,46 +388,46 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
-	case "o":
+	case keys.OpenPR:
 		if n > 0 && filtered[m.cursor].PRUrl != "" {
 			return m, openURLCmd(filtered[m.cursor].PRUrl)
 		}
 
-	case "p":
+	case keys.Pull:
 		if n > 0 {
 			m.fetchingPR = true
 			m.statusMsg = "pulling " + filtered[m.cursor].Name + "…"
 			return m, tea.Batch(m.spinner.Tick, fetchRepoCmd(filtered[m.cursor].Path))
 		}
 
-	case "ctrl+p":
+	case keys.PullAll:
 		if n > 0 && !m.fetchingPR && !m.refreshing {
 			m.fetchingPR = true
 			m.statusMsg = "pulling all repos…"
 			return m, tea.Batch(m.spinner.Tick, pullAllCmd(m.repos))
 		}
 
-	case "s":
+	case keys.Shell:
 		if n > 0 {
 			return m, openShellCmd(filtered[m.cursor].Path)
 		}
 
-	case "ctrl+d":
+	case keys.Delete:
 		if n > 0 {
 			m.showDeleteConfirm = true
 		}
 
-	case "esc":
+	case keys.Back:
 		if m.searchQuery != "" {
 			m.searchQuery = ""
 			m.cursor = 0
 			m.offset = 0
 		}
 
-	case "z":
+	case keys.Settings:
 		m.state = stateSettings
 
-	case "r":
+	case keys.Refresh:
 		if !m.refreshing {
 			m.refreshing = true
 			m.refreshRepos = nil
@@ -433,19 +437,19 @@ func (m model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		}
 
 	// ── Sorting ───────────────────────────────────────────────────────────
-	case "0":
+	case keys.SortStatus:
 		return m.applySort(git.SortStatus), nil
-	case "N":
+	case keys.SortName:
 		return m.applySort(git.SortName), nil
-	case "B":
+	case keys.SortBranch:
 		return m.applySort(git.SortBranch), nil
-	case "S":
+	case keys.SortSync:
 		return m.applySort(git.SortSync), nil
-	case "C":
+	case keys.SortChanges:
 		return m.applySort(git.SortChanges), nil
-	case "T":
+	case keys.SortTime:
 		return m.applySort(git.SortLastChanged), nil
-	case "P":
+	case keys.SortPR:
 		return m.applySort(git.SortPR), nil
 	}
 
@@ -463,26 +467,26 @@ func (m model) applySort(col git.SortColumn) model {
 	return m
 }
 
-func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
+func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
+	switch action {
+	case keys.Back:
 		// Translate full m.repos cursor back to filtered-list cursor.
 		m.cursor = m.fullToFilteredIdx(m.cursor)
 		m.state = stateList
 		return m, nil
 
-	case "up", "k":
+	case keys.MoveUp:
 		m.detailVP.ScrollUp(1)
 
-	case "down", "j":
+	case keys.MoveDown:
 		m.detailVP.ScrollDown(1)
 
-	case "o":
+	case keys.OpenPR:
 		if len(m.repos) > 0 && m.repos[m.cursor].PRUrl != "" {
 			return m, openURLCmd(m.repos[m.cursor].PRUrl)
 		}
 
-	case "g":
+	case keys.OpenGitHub:
 		if len(m.repos) > 0 {
 			r := m.repos[m.cursor]
 			url := git.RemoteToWebURL(r.RemoteURL)
@@ -499,65 +503,67 @@ func (m model) handleDetailKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "p":
+	case keys.Pull:
 		if len(m.repos) > 0 {
 			m.fetchingPR = true
 			m.statusMsg = "pulling " + m.repos[m.cursor].Name + "…"
 			return m, tea.Batch(m.spinner.Tick, fetchRepoCmd(m.repos[m.cursor].Path))
 		}
 
-	case "s":
+	case keys.Shell:
 		if len(m.repos) > 0 {
 			return m, openShellCmd(m.repos[m.cursor].Path)
 		}
 
-	case "r":
+	case keys.Refresh:
 		if len(m.repos) > 0 && !m.fetchingPR {
 			m.fetchingPR = true
 			m.statusMsg = "refreshing " + m.repos[m.cursor].Name + "…"
 			return m, tea.Batch(m.spinner.Tick, refreshSingleRepoCmd(m.repos[m.cursor].Path))
 		}
 
-	case "z":
+	case keys.Settings:
 		m.state = stateSettings
 	}
 	return m, nil
 }
 
-func (m model) handleSettingsKey(key string) (tea.Model, tea.Cmd) {
-	if m.settingsEditing {
-		switch key {
-		case "enter":
-			if n, err := strconv.Atoi(m.settingsEditBuf); err == nil && n >= 0 {
-				m.autoRefreshMins = n
-			}
-			m.settingsEditing = false
-			m.settingsEditBuf = ""
-		case "esc":
-			m.settingsEditing = false
-			m.settingsEditBuf = ""
-		case "backspace":
-			if len(m.settingsEditBuf) > 0 {
-				m.settingsEditBuf = m.settingsEditBuf[:len(m.settingsEditBuf)-1]
-			}
-		default:
-			if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
-				m.settingsEditBuf += key
-			}
-		}
-		return m, nil
-	}
-
+// handleSettingsEditKey is the number field of the setting being edited:
+// it takes every key while open.
+func (m model) handleSettingsEditKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "j", "down":
+	case "enter":
+		if n, err := strconv.Atoi(m.settingsEditBuf); err == nil && n >= 0 {
+			m.autoRefreshMins = n
+		}
+		m.settingsEditing = false
+		m.settingsEditBuf = ""
+	case "esc":
+		m.settingsEditing = false
+		m.settingsEditBuf = ""
+	case "backspace":
+		if len(m.settingsEditBuf) > 0 {
+			m.settingsEditBuf = m.settingsEditBuf[:len(m.settingsEditBuf)-1]
+		}
+	default:
+		if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
+			m.settingsEditBuf += key
+		}
+	}
+	return m, nil
+}
+
+func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
+	switch action {
+	case keys.MoveDown:
 		if m.settingsCursor < 1 {
 			m.settingsCursor++
 		}
-	case "k", "up":
+	case keys.MoveUp:
 		if m.settingsCursor > 0 {
 			m.settingsCursor--
 		}
-	case "space", "enter":
+	case keys.Toggle:
 		switch m.settingsCursor {
 		case 0: // auto_refresh_mins — start editing
 			m.settingsEditing = true
@@ -565,12 +571,12 @@ func (m model) handleSettingsKey(key string) (tea.Model, tea.Cmd) {
 		case 1: // boot_fetch — toggle
 			m.bootFetch = !m.bootFetch
 		}
-	case "e":
+	case keys.Edit:
 		if m.settingsCursor == 0 {
 			m.settingsEditing = true
 			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
 		}
-	case "esc":
+	case keys.Back:
 		m.state = stateList
 		m.saveConfig()
 		var cmds []tea.Cmd
