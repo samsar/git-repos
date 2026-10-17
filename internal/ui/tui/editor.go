@@ -85,11 +85,11 @@ func (m model) openInDefault() (tea.Model, tea.Cmd) {
 func (m model) openIn(e launch.Editor, r git.RepoInfo) (tea.Model, tea.Cmd) {
 	switch {
 	case e.How() == launch.Inline:
-		return m, runInline(e, r)
+		return m, m.runInline(e, r)
 	case e.InTerminal() && !m.openerOK && len(e.Cmd) == 0:
-		return m, openShellCmd(r.Path)
+		return m, m.openShellCmd(r.Path)
 	case e.InTerminal() && !m.openerOK:
-		return m, runInline(e, r)
+		return m, m.runInline(e, r)
 	case e.InTerminal():
 		opener := m.opener
 		m.statusMsg = fmt.Sprintf("opening %s in %s…", r.Name, e.Name)
@@ -107,8 +107,8 @@ func (m model) openIn(e launch.Editor, r git.RepoInfo) (tea.Model, tea.Cmd) {
 }
 
 // runInline runs e on r in git-repos's terminal, as the shell key does.
-func runInline(e launch.Editor, r git.RepoInfo) tea.Cmd {
-	return tea.ExecProcess(launch.InlineCmd(e, r.Path), func(err error) tea.Msg {
+func (m model) runInline(e launch.Editor, r git.RepoInfo) tea.Cmd {
+	return m.execOnAltScreen(launch.InlineCmd(e, r.Path), func(err error) tea.Msg {
 		return editorOpenedMsg{err: err}
 	})
 }
