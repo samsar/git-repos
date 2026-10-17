@@ -160,6 +160,9 @@ const (
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 type model struct {
+	// the terminal, which keeps git-repos's screen up for a shell or editor
+	screen *screen
+
 	// config
 	scanDirs        []string
 	doFetch         bool
@@ -550,16 +553,14 @@ func autoRefreshTickCmd(mins int) tea.Cmd {
 	})
 }
 
-func openShellCmd(path string) tea.Cmd {
+func (m model) openShellCmd(path string) tea.Cmd {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	// Clear the screen before launching the shell so it doesn't look like
-	// we're shelling into an existing session.
-	c := exec.Command("sh", "-c", "clear; exec "+shell)
+	c := exec.Command(shell)
 	c.Dir = path
-	return tea.ExecProcess(c, func(err error) tea.Msg {
+	return m.execOnAltScreen(c, func(err error) tea.Msg {
 		return shellReturnMsg{}
 	})
 }
@@ -594,7 +595,8 @@ func openBrowser(url string) {
 // Run starts the full-screen TUI program.
 func Run(o Options) error {
 	m := New(o)
-	p := tea.NewProgram(m)
+	m.screen = newScreen(os.Stdout)
+	p := tea.NewProgram(m, tea.WithOutput(m.screen))
 	_, err := p.Run()
 	return err
 }

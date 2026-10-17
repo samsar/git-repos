@@ -400,7 +400,7 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 
 	case keys.Shell:
 		if n > 0 {
-			return m, openShellCmd(filtered[m.cursor].Path)
+			return m, m.openShellCmd(filtered[m.cursor].Path)
 		}
 
 	case keys.OpenEditor:
@@ -558,7 +558,7 @@ func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
 
 	case keys.Shell:
 		if len(m.repos) > 0 {
-			return m, openShellCmd(m.repos[m.cursor].Path)
+			return m, m.openShellCmd(m.repos[m.cursor].Path)
 		}
 
 	case keys.OpenEditor:
