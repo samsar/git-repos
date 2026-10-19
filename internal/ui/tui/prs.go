@@ -318,59 +318,73 @@ func (m model) prHeaderLines() []string {
 	return lines
 }
 
-// PR page columns, besides REPO and TITLE, which share what is left.
+// PR page columns that keep one width: each fits its longest value.
 const (
-	wPRNum     = 6
-	wPRAuthor  = 12
 	wPRChecks  = 6
 	wPRReview  = 8
 	wPRUpdated = 8
 	wPRLocal   = 6
 )
 
-// prCols is the PR page's resizable columns: REPO's width, TITLE's, and
-// whether AUTHOR shows.
+// prGap is the space between the PR page's columns.
+const prGap = 3
+
+// prCols is the PR page's resizable columns' widths, and whether AUTHOR
+// shows.
 type prCols struct {
-	repo, title int
-	author      bool
+	repo, num, title, author int
+	showAuthor               bool
 }
 
-// prColWidths fits the columns to the terminal: REPO as wide as the
-// widest repo shown (12 to 28), TITLE the rest. Short of room for a
+// prColWidths fits the columns to the terminal: REPO, #, TITLE and
+// AUTHOR as wide as their widest value shown (REPO up to 40, AUTHOR up
+// to 18), so every column sits prGap from the next. Short of room for a
 // title of 20, AUTHOR goes first, then REPO narrows to 12.
 func (m model) prColWidths() prCols {
 	const minTitle = 20
-	c := prCols{repo: 12, author: true}
+	c := prCols{repo: len("REPO"), num: len("#"), title: len("TITLE"), author: len("AUTHOR"), showAuthor: true}
 	for _, pr := range m.displayPRs() {
 		c.repo = max(c.repo, lipgloss.Width(pr.Repo))
+		c.num = max(c.num, len("#"+strconv.Itoa(pr.Number)))
+		c.title = max(c.title, lipgloss.Width(pr.Title))
+		c.author = max(c.author, lipgloss.Width(pr.Author))
 	}
-	c.repo = min(c.repo, 28)
-	// prefix(5) + each column and the space after it.
-	fixed := 5 + wPRNum + 1 + wPRChecks + 1 + wPRReview + 1 + wPRUpdated + 1 + wPRLocal + 1
-	room := m.width - fixed - c.repo - 1
-	if room-(wPRAuthor+1) < minTitle {
-		c.author = false
+	c.repo = min(c.repo, 40)
+	c.author = min(c.author, 18)
+	// prefix(5), then each column but TITLE and AUTHOR and the gap after it.
+	fixed := 5 + c.num + prGap + wPRChecks + prGap + wPRReview + prGap + wPRUpdated + prGap + wPRLocal
+	room := m.width - fixed - c.repo - prGap - prGap
+	if room-(c.author+prGap) < minTitle {
+		c.showAuthor = false
 	} else {
-		room -= wPRAuthor + 1
+		room -= c.author + prGap
 	}
 	if room < minTitle {
-		shrink := min(minTitle-room, c.repo-12)
+		shrink := max(0, min(minTitle-room, c.repo-12))
 		c.repo -= shrink
 		room += shrink
 	}
-	c.title = max(1, room)
+	c.title = max(1, min(room, c.title))
 	return c
 }
 
-func (m model) renderPRColHeader() string {
-	c := m.prColWidths()
-	author := ""
-	if c.author {
-		author = fmt.Sprintf(" %-*s", wPRAuthor, "AUTHOR")
+// prRow lays out the PR page's cells in their columns, prGap apart.
+func prRow(c prCols, repo, num, title, author, checks, review, updated, local string) string {
+	cells := []string{padCell(trunc(repo, c.repo), c.repo), padCell(num, c.num), padCell(trunc(title, c.title), c.title)}
+	if c.showAuthor {
+		cells = append(cells, padCell(trunc(author, c.author), c.author))
 	}
-	text := fmt.Sprintf("  ST %-*s %-*s %-*s%s %-*s %-*s %-*s %-*s",
-		c.repo, "REPO", wPRNum, "#", c.title, "TITLE", author,
-		wPRChecks, "CHECKS", wPRReview, "REVIEW", wPRUpdated, "UPDATED", wPRLocal, "LOCAL")
+	cells = append(cells, padCell(checks, wPRChecks), padCell(review, wPRReview), padCell(updated, wPRUpdated), local)
+	return strings.Join(cells, strings.Repeat(" ", prGap))
+}
+
+// padCell pads s, which may hold escape codes, to w columns.
+func padCell(s string, w int) string {
+	return s + strings.Repeat(" ", max(0, w-ansi.StringWidth(s)))
+}
+
+func (m model) renderPRColHeader() string {
+	text := "  ST " + prRow(m.prColWidths(), "REPO", "#", "TITLE", "AUTHOR", "CHECKS", "REVIEW", "UPDATED", "LOCAL")
 	return colHdrStyle.Width(m.width).Render(ansi.Truncate(text, m.width, "")) + "\n"
 }
 
@@ -453,23 +467,9 @@ func relTime(t, now time.Time) string {
 func (m model) renderPRRow(pr git.PullRequest, selected bool) string {
 	group := prGroup(pr)
 	icon, rowStyle := groupIconStyle(group)
-	c := m.prColWidths()
-
 	num := "#" + strconv.Itoa(pr.Number)
-	numStr := makeHyperlink(pr.URL, num) + strings.Repeat(" ", max(0, wPRNum-len(num)))
-	left := fmt.Sprintf("%-*s ", c.repo, trunc(pr.Repo, c.repo))
-	author := ""
-	if c.author {
-		author = fmt.Sprintf(" %-*s", wPRAuthor, trunc(pr.Author, wPRAuthor))
-	}
-	right := fmt.Sprintf(" %-*s%s %-*s %-*s %-*s %-*s",
-		c.title, trunc(pr.Title, c.title),
-		author,
-		wPRChecks, checksStr(pr.Checks),
-		wPRReview, reviewStr(pr),
-		wPRUpdated, relTime(pr.UpdatedAt, time.Now()),
-		wPRLocal, m.localStr(pr))
-	content := left + numStr + right
+	content := prRow(m.prColWidths(), pr.Repo, makeHyperlink(pr.URL, num), pr.Title, pr.Author,
+		checksStr(pr.Checks), reviewStr(pr), relTime(pr.UpdatedAt, time.Now()), m.localStr(pr))
 
 	if selected {
 		var selStyle lipgloss.Style
