@@ -146,11 +146,10 @@ var (
 // ── Column widths ─────────────────────────────────────────────────────────────
 //
 // Widths shared with the plain renderer come from the git package.
-// wBranch and wSync are wider here because the TUI is full-width adaptive.
+// REPO, BRANCH, SYNC and LAST MSG fit the terminal instead; see colWidths.
 
 const (
 	wST    = git.ColWidthStatus
-	wRepo  = git.ColWidthRepo
 	wChg   = git.ColWidthChanges
 	wStash = git.ColWidthStash
 	wWhen  = git.ColWidthWhen
@@ -368,51 +367,60 @@ func (m model) saveConfig() error {
 	return config.Save(cfg)
 }
 
-// colWidths returns dynamic widths for the three resizable columns: BRANCH, SYNC,
-// and LAST MSG. Priority order when space is tight: protect BRANCH and SYNC first
-// (down to their minimums); LAST MSG shrinks first and grows last. BRANCH's
-// preferred width follows the longest branch name on screen (up to branchCap),
-// so long names like "feat/otel-instrument-and-repoint" show in full when
-// there's room instead of being clipped at a fixed width.
+// colWidths returns dynamic widths for the four resizable columns: REPO, BRANCH,
+// SYNC, and LAST MSG. Priority order when space is tight: protect REPO, BRANCH
+// and SYNC first (down to their minimums); LAST MSG shrinks first and grows
+// last. REPO's and BRANCH's preferred widths follow the longest name on screen
+// (up to repoCap and branchCap), so long names like
+// "feat/otel-instrument-and-repoint" show in full when there's room instead of
+// being clipped at a fixed width.
 //
 // baseFixed accounts for every non-resizable byte in a rendered row:
 //
-//	prefix(5) + REPO+sp(26) + CHG+sp(15) + STASH+sp(6) + WHEN+sp(13)
-//	+ PR+sp(7) + branch-trailing-sp(1) + sync-trailing-sp(1) = 74
-func (m model) colWidths() (branch, sync, msg int) {
+//	prefix(5) + CHG+sp(15) + STASH+sp(6) + WHEN+sp(13) + PR+sp(7)
+//	+ repo-trailing-sp(1) + branch-trailing-sp(1) + sync-trailing-sp(1) = 49
+func (m model) colWidths() (repo, branch, sync, msg int) {
 	const (
-		baseFixed  = 74
-		branchMin  = 22
-		branchCap  = 60 // upper bound so one long branch can't starve LAST MSG
-		syncMin    = 9  // "no-remote" is 9 chars
-		syncPref   = 12
-		msgMin     = 12
-		msgFloor   = 6 // LAST MSG yields below msgMin (down to here) so a long BRANCH fits
+		baseFixed = 49
+		repoMin   = git.ColWidthRepo
+		repoCap   = 40 // upper bound so one long repo name can't starve the rest
+		branchMin = 22
+		branchCap = 60 // upper bound so one long branch can't starve LAST MSG
+		syncMin   = 9  // "no-remote" is 9 chars
+		syncPref  = 12
+		msgMin    = 12
+		msgFloor  = 6 // LAST MSG yields below msgMin (down to here) so a long REPO or BRANCH fits
 	)
 
-	// branchPref tracks the longest branch name present (clamped to a sane
-	// range) so full names show when there's room, instead of a fixed cap.
-	branchPref := branchMin
+	// repoPref and branchPref track the longest repo and branch names present
+	// (clamped to a sane range) so full names show when there's room, instead
+	// of a fixed cap.
+	repoPref, branchPref := repoMin, branchMin
 	for i := range m.repos {
-		if w := lipgloss.Width(m.repos[i].Branch); w > branchPref {
-			branchPref = w
-		}
+		repoPref = max(repoPref, lipgloss.Width(m.repos[i].Name))
+		branchPref = max(branchPref, lipgloss.Width(m.repos[i].Branch))
 	}
+	repoPref = min(repoPref, repoCap)
 	branchPref = min(branchPref, branchCap)
 
 	avail := m.width - baseFixed
 
+	repo = repoMin
 	branch = branchMin
 	sync = syncMin
 	msg = msgMin
 
-	leftover := avail - branchMin - syncMin - msgMin
+	leftover := avail - repoMin - branchMin - syncMin - msgMin
 	if leftover <= 0 {
 		return
 	}
 
-	// Grow branch to preferred first.
-	grow := min(leftover, branchPref-branchMin)
+	// Grow repo, then branch, to preferred first.
+	grow := min(leftover, repoPref-repoMin)
+	repo += grow
+	leftover -= grow
+
+	grow = min(leftover, branchPref-branchMin)
 	branch += grow
 	leftover -= grow
 
@@ -427,14 +435,15 @@ func (m model) colWidths() (branch, sync, msg int) {
 		return
 	}
 
-	// No spare room but BRANCH is still short of its preferred width (a long
-	// branch on a slightly-too-narrow terminal). Borrow from LAST MSG down to
-	// msgFloor so the full branch name shows — LAST MSG shrinks first.
-	if branch < branchPref {
-		borrow := min(branchPref-branch, msg-msgFloor)
-		branch += borrow
-		msg -= borrow
-	}
+	// No spare room but REPO or BRANCH is still short of its preferred width (a
+	// long name on a slightly-too-narrow terminal). Borrow from LAST MSG down to
+	// msgFloor so the full name shows — LAST MSG shrinks first.
+	borrow := min(repoPref-repo, msg-msgFloor)
+	repo += borrow
+	msg -= borrow
+	borrow = min(branchPref-branch, msg-msgFloor)
+	branch += borrow
+	msg -= borrow
 	return
 }
 
