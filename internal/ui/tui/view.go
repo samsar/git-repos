@@ -926,7 +926,7 @@ func (m model) renderColHeader() string {
 		return colHdrStyle.Render(fmt.Sprintf("%-*s ", width, trunc(name, width)))
 	}
 
-	wBranch, wSync, wMsg := m.colWidths()
+	wRepo, wBranch, wSync, wMsg := m.colWidths()
 	line := lipgloss.NewStyle().Background(bg).Render("   ") +
 		col(git.SortName, "REPO", wRepo+wST) +
 		col(git.SortBranch, "BRANCH", wBranch) +
@@ -968,7 +968,7 @@ func (m model) renderRow(info git.RepoInfo, selected bool) string {
 		}
 	}
 
-	wBranch, wSync, wMsg := m.colWidths()
+	wRepo, wBranch, wSync, wMsg := m.colWidths()
 
 	// Build content in two halves so prStr (which may contain OSC sequences)
 	// is never passed through a %-*s width specifier.
