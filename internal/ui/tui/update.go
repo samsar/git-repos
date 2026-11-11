@@ -181,10 +181,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case autoRefreshMsg:
-		if msg.gen != m.autoRefreshGen || m.autoRefreshMins <= 0 {
+		if msg.gen != m.autoRefreshGen {
 			return m, nil
 		}
 		next := autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen)
+		m.autoRefreshRunning = next != nil
+		if m.autoRefreshMins <= 0 {
+			return m, nil
+		}
 		if m.state == stateList && !m.refreshing && !m.fetchingPR {
 			m.refreshing = true
 			m.refreshRepos = nil
@@ -646,7 +650,8 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 			m.statusMsg = "couldn't save settings: " + err.Error()
 		}
 		var cmds []tea.Cmd
-		if m.autoRefreshMins != m.settingsAutoRefreshMins {
+		if m.autoRefreshMins != m.settingsAutoRefreshMins ||
+			(m.autoRefreshMins > 0 && !m.autoRefreshRunning) {
 			var cmd tea.Cmd
 			m, cmd = m.restartAutoRefresh()
 			if cmd != nil {

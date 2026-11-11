@@ -171,6 +171,10 @@ type model struct {
 	autoRefreshFetch  bool
 	autoRefreshCtx    context.Context
 	autoRefreshCancel context.CancelFunc
+	// autoRefreshRunning says a tick chain is live. It is tracked
+	// separately from autoRefreshMins because editing the interval to 0
+	// while in settings can let an arriving tick end the chain.
+	autoRefreshRunning bool
 	// autoRefreshRoot is the lifetime of the whole timer; each interval
 	// change replaces its child context, and quitting cancels the root.
 	autoRefreshRoot       context.Context
@@ -330,6 +334,7 @@ func New(o Options) model {
 		autoRefreshFetch:        o.AutoRefreshFetch,
 		autoRefreshCtx:          refreshCtx,
 		autoRefreshCancel:       refreshCancel,
+		autoRefreshRunning:      refreshCtx != nil,
 		autoRefreshRoot:         root,
 		autoRefreshRootCancel:   rootCancel,
 		autoRefreshGen:          1,
@@ -618,6 +623,7 @@ func (m model) restartAutoRefresh() (model, tea.Cmd) {
 		m.autoRefreshCancel = nil
 	}
 	m.autoRefreshCtx = nil
+	m.autoRefreshRunning = false
 	if m.autoRefreshMins <= 0 {
 		return m, nil
 	}
@@ -626,7 +632,9 @@ func (m model) restartAutoRefresh() (model, tea.Cmd) {
 		root = context.Background()
 	}
 	m.autoRefreshCtx, m.autoRefreshCancel = context.WithCancel(root)
-	return m, autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen)
+	cmd := autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen)
+	m.autoRefreshRunning = cmd != nil
+	return m, cmd
 }
 
 func (m model) openShellCmd(path string) tea.Cmd {
