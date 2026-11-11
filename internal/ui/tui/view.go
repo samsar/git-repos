@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
+	"github.com/samsar/git-repos/internal/ui/sanitize"
 )
 
 // logoLines is the ASCII-art logo rendered in the top-right corner.
@@ -133,7 +134,7 @@ func (m model) View() tea.View {
 // being inspected in the detail view. Bubble Tea clears it again on exit.
 func (m model) windowTitle() string {
 	if m.state == stateDetail && m.cursor < len(m.repos) {
-		return "git-repos: " + m.repos[m.cursor].Name
+		return "git-repos: " + sanitize.Line(m.repos[m.cursor].Name)
 	}
 	if m.state == statePRs {
 		return "git-repos: PRs"
@@ -436,17 +437,17 @@ func (m model) viewHelp() string {
 	type versionEntry struct{ name, ver string }
 	var versions []versionEntry
 	if m.version != "" {
-		grVer := m.version
+		grVer := sanitize.Line(m.version)
 		if m.updateAvailable {
-			grVer += "  " + attentionStyle.Render("update available: "+m.latestVersion)
+			grVer += "  " + attentionStyle.Render("update available: "+sanitize.Line(m.latestVersion))
 		}
 		versions = append(versions, versionEntry{"gr", grVer})
 	}
 	if m.gitVersion != "" {
-		versions = append(versions, versionEntry{"git", m.gitVersion})
+		versions = append(versions, versionEntry{"git", sanitize.Line(m.gitVersion)})
 	}
 	if m.ghVersion != "" {
-		versions = append(versions, versionEntry{"gh", m.ghVersion})
+		versions = append(versions, versionEntry{"gh", sanitize.Line(m.ghVersion)})
 	}
 
 	versionsRows := 0
@@ -454,7 +455,7 @@ func (m model) viewHelp() string {
 		renderSection(" Versions ")
 		for _, v := range versions {
 			name := nameStyle.Render(fmt.Sprintf("%-*s", nameW, v.name))
-			b.WriteString(fill.Width(m.width).Render(fill.Render("  ") + name + fill.Render("  ") + descStyle.Render(v.ver)) + "\n")
+			b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+name+fill.Render("  ")+descStyle.Render(v.ver)) + "\n")
 		}
 		versionsRows = 1 + 1 + len(versions) // blank + sep + content
 	}
@@ -589,14 +590,14 @@ func (m model) detailInfoLines() []string {
 		lastLine = hdrPurpleStyle.Render("  PR: ") +
 			cyanStyle.Background(headerBg).Render(fmt.Sprintf("#%d open", r.PRNumber))
 	}
-	lastLine += hdrPurpleStyle.Render("  Last: ") + hdrInfoStyle.Render(r.LastRel)
+	lastLine += hdrPurpleStyle.Render("  Last: ") + hdrInfoStyle.Render(sanitize.Line(r.LastRel))
 
 	leftW := m.width / 3
 	branchLabel := hdrPurpleStyle.Render("  Branch: ")
 	branchMax := max(0, leftW-lipgloss.Width(branchLabel))
 
 	return []string{
-		hdrPurpleStyle.Render("  Root: ") + boldStyle.Background(headerBg).Render(r.Name),
+		hdrPurpleStyle.Render("  Root: ") + boldStyle.Background(headerBg).Render(sanitize.Line(r.Name)),
 		branchLabel + hdrInfoStyle.Render(trunc(r.Branch, branchMax)),
 		hdrPurpleStyle.Render("  Upstream: ") + syncStr + hdrDimStyle.Render("   Changes: ") + changesStr,
 		lastLine,
@@ -821,9 +822,9 @@ func (m model) renderHeader3Zone(leftLines []string) string {
 // "v" when an update is available.
 func (m model) versionLabel() string {
 	if m.updateAvailable {
-		return "!" + strings.TrimPrefix(m.version, "v")
+		return "!" + strings.TrimPrefix(sanitize.Line(m.version), "v")
 	}
-	return m.version
+	return sanitize.Line(m.version)
 }
 
 // logoColW returns the width of the logo column: the wider of the logo art and
@@ -849,7 +850,7 @@ func (m model) renderStatusBar() string {
 
 	if m.searching {
 		queryStyle := lipgloss.NewStyle().Background(colorStatusBarBg).Foreground(colorCyan)
-		content := queryStyle.Render("  /" + m.query() + "█")
+		content := queryStyle.Render("  /" + sanitize.Line(m.query()) + "█")
 		return style.Width(m.width).Render(ansi.Truncate(content, m.width, "…"))
 	}
 
@@ -860,7 +861,7 @@ func (m model) renderStatusBar() string {
 		if k := m.keys.first(keys.Search); k != "" {
 			hint = "  (" + k + " to edit · esc to clear)"
 		}
-		content := queryStyle.Render("  /"+m.query()) + hintStyle.Render(hint)
+		content := queryStyle.Render("  /"+sanitize.Line(m.query())) + hintStyle.Render(hint)
 		return style.Width(m.width).Render(ansi.Truncate(content, m.width, "…"))
 	}
 
@@ -885,7 +886,7 @@ func (m model) renderStatusBar() string {
 		content += m.spinnerOn(colorStatusBarBg) + style.Render("  ")
 	}
 	if msg != "" {
-		content += style.Render(msg)
+		content += style.Render(sanitize.Line(msg))
 	}
 	return style.Width(m.width).Render(ansi.Truncate(content, m.width, "…"))
 }
@@ -1002,7 +1003,11 @@ func (m model) renderRow(info git.RepoInfo, selected bool) string {
 // makeHyperlink wraps text in an OSC 8 terminal hyperlink (supported by
 // iTerm2, Kitty, WezTerm, etc.). CMD+click opens url in the browser.
 func makeHyperlink(url, text string) string {
-	return "\033]8;;" + url + "\033\\" + text + "\033]8;;\033\\"
+	u, ok := sanitize.WebURL(url)
+	if !ok {
+		return sanitize.Line(text)
+	}
+	return "\033]8;;" + u + "\033\\" + sanitize.Line(text) + "\033]8;;\033\\"
 }
 
 // ── Detail content ────────────────────────────────────────────────────────────
@@ -1038,9 +1043,9 @@ func (m model) renderDetailContent() string {
 
 	var b strings.Builder
 	b.WriteString(blank)
-	b.WriteString(field("Path", urlStyle.Render(r.Path)))
+	b.WriteString(field("Path", urlStyle.Render(sanitize.Line(r.Path))))
 	b.WriteString(blank)
-	b.WriteString(field("Branch", textStyle.Render(r.Branch)))
+	b.WriteString(field("Branch", textStyle.Render(sanitize.Line(r.Branch))))
 
 	// Show all remotes so forks display both origin and upstream.
 	for i, rem := range r.Remotes {
@@ -1048,7 +1053,7 @@ func (m model) renderDetailContent() string {
 		if i == 0 {
 			label = "Remotes"
 		}
-		b.WriteString(field(label, cyanStyle.Render(rem.Name)+fill.Render("  ")+urlStyle.Render(rem.URL)))
+		b.WriteString(field(label, cyanStyle.Render(sanitize.Line(rem.Name))+fill.Render("  ")+urlStyle.Render(sanitize.Line(git.RedactURL(rem.URL)))))
 	}
 
 	if r.NoUpstream {
@@ -1071,30 +1076,30 @@ func (m model) renderDetailContent() string {
 	if len(r.StagedFiles) > 0 {
 		b.WriteString(heading("Staged changes"))
 		for _, f := range r.StagedFiles {
-			b.WriteString(line(attentionStyle.Render("  " + f)))
+			b.WriteString(line(attentionStyle.Render("  " + sanitize.Line(f))))
 		}
 	}
 	if len(r.ModifiedFiles) > 0 {
 		b.WriteString(heading("Modified files"))
 		for _, f := range r.ModifiedFiles {
-			b.WriteString(line(attentionStyle.Render("  " + f)))
+			b.WriteString(line(attentionStyle.Render("  " + sanitize.Line(f))))
 		}
 	}
 	if len(r.UntrackedFiles) > 0 {
 		b.WriteString(heading("Untracked files"))
 		for _, f := range r.UntrackedFiles {
-			b.WriteString(line(pushStyle.Render("  " + f)))
+			b.WriteString(line(pushStyle.Render("  " + sanitize.Line(f))))
 		}
 	}
 	if r.StashCount > 0 {
 		b.WriteString(field("Stash", textStyle.Render(fmt.Sprintf("%d changeset(s)", r.StashCount))))
 	}
-	b.WriteString(field("Last commit", textStyle.Render(r.LastRel)))
+	b.WriteString(field("Last commit", textStyle.Render(sanitize.Line(r.LastRel))))
 
 	if r.PRNumber > 0 {
 		b.WriteString(blank)
 		b.WriteString(field("PR", cyanStyle.Render(fmt.Sprintf("#%d  open", r.PRNumber))))
-		b.WriteString(field("", urlStyle.Render(r.PRUrl)))
+		b.WriteString(field("", urlStyle.Render(sanitize.Line(git.RedactURL(r.PRUrl)))))
 	}
 
 	// ── Commits behind ────────────────────────────────────────────────────────
@@ -1106,7 +1111,7 @@ func (m model) renderDetailContent() string {
 			b.WriteString(line(dimStyle.Render("  (none)")))
 		} else {
 			for _, c := range m.behindCommits {
-				b.WriteString(line(attentionStyle.Render("  " + c)))
+				b.WriteString(line(attentionStyle.Render("  " + sanitize.Line(c))))
 			}
 		}
 	}
@@ -1118,7 +1123,7 @@ func (m model) renderDetailContent() string {
 		b.WriteString(line(dimStyle.Render("  (no commits)")))
 	} else {
 		for _, c := range m.detailCommits {
-			b.WriteString(line(textStyle.Render("  " + c)))
+			b.WriteString(line(textStyle.Render("  " + sanitize.Line(c))))
 		}
 	}
 	return b.String()
@@ -1145,7 +1150,7 @@ func (m model) viewConfirmDelete() string {
 		"",
 		warnS.Render("  Delete repository from disk?"),
 		"",
-		greyS.Render("  Path: " + r.Path),
+		greyS.Render("  Path: " + sanitize.Line(r.Path)),
 		"",
 		greyS.Render("  This permanently deletes the directory and all its contents."),
 		greyS.Render("  This action cannot be undone."),
@@ -1193,7 +1198,7 @@ func (m model) viewSettings() string {
 		sepStyle.Render(strings.Repeat("─", m.width-sw-len(settingsLabel))) + "\n")
 
 	b.WriteString(blank)
-	b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render("  ")+dimS.Render("Config: ")+dStyle.Render(m.configPath), m.width, "…")) + "\n")
+	b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render("  ")+dimS.Render("Config: ")+dStyle.Render(sanitize.Line(m.configPath)), m.width, "…")) + "\n")
 	b.WriteString(blank)
 
 	type settingRow struct {
@@ -1204,11 +1209,13 @@ func (m model) viewSettings() string {
 	}
 	editorName := "none found"
 	if e, ok := m.theDefaultEditor(); ok {
-		editorName = e.Name
+		editorName = sanitize.Line(e.Name)
 	}
 	rows := []settingRow{
 		{"Auto-refresh (mins)", "Re-scan all repos on a timer. 0 = disabled.", "int", strconv.Itoa(m.autoRefreshMins)},
 		{"Fetch on startup", "Run git fetch in each repo at startup.", "bool", boolStr(m.bootFetch)},
+		{"Fetch on auto-refresh", "Fetch from every remote on the timer. Off re-scans local state only.", "bool", boolStr(m.autoRefreshFetch)},
+		{"Check for updates", "Ask GitHub for a newer release at startup.", "bool", boolStr(m.checkUpdates)},
 		{"Default editor", "What " + m.keys.first(keys.OpenEditor) + " opens a repo in; " + m.keys.first(keys.PickEditor) + " picks another. git repos editors lists them.", "choice", editorName},
 	}
 
@@ -1253,7 +1260,7 @@ func (m model) viewSettings() string {
 
 	b.WriteString(fill.Width(m.width).Render(fill.Render("  ")+boldBg.Render("Scan directories:")) + "\n")
 	for _, dir := range m.scanDirs {
-		b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render("    ")+dStyle.Render(dir), m.width, "…")) + "\n")
+		b.WriteString(fill.Width(m.width).Render(ansi.Truncate(fill.Render("    ")+dStyle.Render(sanitize.Line(dir)), m.width, "…")) + "\n")
 	}
 	if len(m.scanDirs) == 0 {
 		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dimS.Render("(none — using current directory)")) + "\n")
@@ -1270,7 +1277,7 @@ func (m model) viewSettings() string {
 		b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dimS.Render("(none)")) + "\n")
 	} else {
 		for _, name := range hiddenNames {
-			b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dStyle.Render(name)) + "\n")
+			b.WriteString(fill.Width(m.width).Render(fill.Render("    ")+dStyle.Render(sanitize.Line(name))) + "\n")
 		}
 	}
 	b.WriteString(blank)
@@ -1362,6 +1369,7 @@ func detailChanges(r git.RepoInfo) string {
 }
 
 func trunc(s string, n int) string {
+	s = sanitize.Line(s)
 	r := []rune(s)
 	if len(r) <= n {
 		return s

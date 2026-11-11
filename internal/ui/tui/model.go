@@ -18,6 +18,7 @@ import (
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/launch"
+	"github.com/samsar/git-repos/internal/ui/sanitize"
 	"github.com/samsar/git-repos/internal/version"
 )
 
@@ -53,7 +54,7 @@ type commitsLoadedMsg []string
 type behindCommitsLoadedMsg []string
 type fetchDoneMsg git.RepoInfo
 type pullAllDoneMsg []git.RepoInfo
-type autoRefreshMsg struct{}
+type autoRefreshMsg struct{ gen uint64 }
 type shellReturnMsg struct{}
 type deleteRepoDoneMsg struct{ name string }
 type errMsg struct{ err error }
@@ -163,12 +164,28 @@ type model struct {
 	screen *screen
 
 	// config
-	scanDirs        []string
-	doFetch         bool
-	noPRs           bool
-	autoRefreshMins int
-	bootFetch       bool
-	configPath      string
+	scanDirs          []string
+	doFetch           bool
+	noPRs             bool
+	autoRefreshMins   int
+	autoRefreshFetch  bool
+	autoRefreshCtx    context.Context
+	autoRefreshCancel context.CancelFunc
+	// autoRefreshRunning says a tick chain is live. It is tracked
+	// separately from autoRefreshMins because editing the interval to 0
+	// while in settings can let an arriving tick end the chain.
+	autoRefreshRunning bool
+	// autoRefreshRoot is the lifetime of the whole timer; each interval
+	// change replaces its child context, and quitting cancels the root.
+	autoRefreshRoot       context.Context
+	autoRefreshRootCancel context.CancelFunc
+	autoRefreshGen        uint64
+	// settingsAutoRefreshMins is the interval when settings opened, so
+	// leaving settings restarts the timer only when it changed.
+	settingsAutoRefreshMins int
+	bootFetch               bool
+	checkUpdates            bool
+	configPath              string
 
 	// versions
 	version    string
@@ -259,14 +276,16 @@ type model struct {
 
 // Options is how the TUI runs: what it scans, and what config.json says.
 type Options struct {
-	Dirs            []string
-	Fetch           bool // git fetch in every repo as it scans
-	PRs             bool // look up open GitHub PRs
-	Hidden          map[string]bool
-	AutoRefreshMins int
-	BootFetch       bool
-	ConfigPath      string
-	Version         string
+	Dirs             []string
+	Fetch            bool // git fetch in every repo as it scans
+	PRs              bool // look up open GitHub PRs
+	Hidden           map[string]bool
+	AutoRefreshMins  int
+	AutoRefreshFetch bool // fetch on each auto-refresh tick
+	BootFetch        bool
+	CheckUpdates     bool // check GitHub for a newer release at startup
+	ConfigPath       string
+	Version          string
 	// Bindings are the keys, and KeyProblems config.json's keys' problems,
 	// the default keys in use when it has any.
 	Bindings    []keys.Binding
@@ -290,27 +309,42 @@ func New(o Options) model {
 	} else if len(o.EditorProblems) > 0 {
 		statusMsg = "config.json's editors are left out: " + o.EditorProblems[0] + " (git repos editors lists them)"
 	}
+	root, rootCancel := context.WithCancel(context.Background())
+	var refreshCtx context.Context
+	var refreshCancel context.CancelFunc
+	if o.AutoRefreshMins > 0 {
+		refreshCtx, refreshCancel = context.WithCancel(root)
+	}
 	return model{
-		keys:            keymap{bindings: o.Bindings},
-		keyProblems:     o.KeyProblems,
-		editors:         o.Editors,
-		defaultEditor:   o.DefaultEditor,
-		opener:          o.Opener,
-		openerOK:        o.OpenerOK,
-		statusMsg:       statusMsg,
-		scanDirs:        o.Dirs,
-		doFetch:         o.Fetch,
-		noPRs:           !o.PRs,
-		state:           stateScanning,
-		spinner:         newSpinner(),
-		sortCol:         git.SortStatus,
-		hidden:          o.Hidden,
-		autoRefreshMins: o.AutoRefreshMins,
-		bootFetch:       o.BootFetch,
-		configPath:      o.ConfigPath,
-		version:         normalizeVersion(o.Version),
-		gitVersion:      detectCLIVersion("git", "--version"),
-		ghVersion:       detectCLIVersion("gh", "--version"),
+		keys:                    keymap{bindings: o.Bindings},
+		keyProblems:             o.KeyProblems,
+		editors:                 o.Editors,
+		defaultEditor:           o.DefaultEditor,
+		opener:                  o.Opener,
+		openerOK:                o.OpenerOK,
+		statusMsg:               statusMsg,
+		scanDirs:                o.Dirs,
+		doFetch:                 o.Fetch,
+		noPRs:                   !o.PRs,
+		state:                   stateScanning,
+		spinner:                 newSpinner(),
+		sortCol:                 git.SortStatus,
+		hidden:                  o.Hidden,
+		autoRefreshMins:         o.AutoRefreshMins,
+		autoRefreshFetch:        o.AutoRefreshFetch,
+		autoRefreshCtx:          refreshCtx,
+		autoRefreshCancel:       refreshCancel,
+		autoRefreshRunning:      refreshCtx != nil,
+		autoRefreshRoot:         root,
+		autoRefreshRootCancel:   rootCancel,
+		autoRefreshGen:          1,
+		settingsAutoRefreshMins: o.AutoRefreshMins,
+		bootFetch:               o.BootFetch,
+		checkUpdates:            o.CheckUpdates,
+		configPath:              o.ConfigPath,
+		version:                 normalizeVersion(o.Version),
+		gitVersion:              detectCLIVersion("git", "--version"),
+		ghVersion:               detectCLIVersion("gh", "--version"),
 	}
 }
 
@@ -363,6 +397,8 @@ func (m model) saveConfig() error {
 	}
 	cfg.AutoRefreshMins = m.autoRefreshMins
 	cfg.BootFetch = m.bootFetch
+	cfg.SetAutoRefreshFetch(m.autoRefreshFetch)
+	cfg.SetCheckUpdates(m.checkUpdates)
 	cfg.DefaultEditor = m.defaultEditor
 	return config.Save(cfg)
 }
@@ -397,8 +433,8 @@ func (m model) colWidths() (repo, branch, sync, msg int) {
 	// of a fixed cap.
 	repoPref, branchPref := repoMin, branchMin
 	for i := range m.repos {
-		repoPref = max(repoPref, lipgloss.Width(m.repos[i].Name))
-		branchPref = max(branchPref, lipgloss.Width(m.repos[i].Branch))
+		repoPref = max(repoPref, lipgloss.Width(sanitize.Line(m.repos[i].Name)))
+		branchPref = max(branchPref, lipgloss.Width(sanitize.Line(m.repos[i].Branch)))
 	}
 	repoPref = min(repoPref, repoCap)
 	branchPref = min(branchPref, branchCap)
@@ -448,12 +484,17 @@ func (m model) colWidths() (repo, branch, sync, msg int) {
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick, startScanCmd(m.scanDirs, m.doFetch), checkVersionCmd}
+	cmds := []tea.Cmd{m.spinner.Tick, startScanCmd(m.scanDirs, m.doFetch)}
+	if m.checkUpdates {
+		cmds = append(cmds, checkVersionCmd)
+	}
 	if !m.noPRs {
 		cmds = append(cmds, checkGHCmd)
 	}
 	if m.autoRefreshMins > 0 {
-		cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
+		if cmd := autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -556,10 +597,44 @@ func pullAllCmd(repos []git.RepoInfo) tea.Cmd {
 	}
 }
 
-func autoRefreshTickCmd(mins int) tea.Cmd {
-	return tea.Tick(time.Duration(mins)*time.Minute, func(t time.Time) tea.Msg {
-		return autoRefreshMsg{}
-	})
+func autoRefreshTickCmd(ctx context.Context, mins int, gen uint64) tea.Cmd {
+	if ctx == nil || mins <= 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		timer := time.NewTimer(time.Duration(mins) * time.Minute)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+			return autoRefreshMsg{gen: gen}
+		}
+	}
+}
+
+// restartAutoRefresh stops the one timer chain, if any, and starts a new
+// one at the current interval. Its generation makes any tick already in
+// flight harmless: it is ignored instead of starting a second chain.
+func (m model) restartAutoRefresh() (model, tea.Cmd) {
+	m.autoRefreshGen++
+	if m.autoRefreshCancel != nil {
+		m.autoRefreshCancel()
+		m.autoRefreshCancel = nil
+	}
+	m.autoRefreshCtx = nil
+	m.autoRefreshRunning = false
+	if m.autoRefreshMins <= 0 {
+		return m, nil
+	}
+	root := m.autoRefreshRoot
+	if root == nil {
+		root = context.Background()
+	}
+	m.autoRefreshCtx, m.autoRefreshCancel = context.WithCancel(root)
+	cmd := autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen)
+	m.autoRefreshRunning = cmd != nil
+	return m, cmd
 }
 
 func (m model) openShellCmd(path string) tea.Cmd {
@@ -583,9 +658,13 @@ func deleteRepoDirCmd(info git.RepoInfo) tea.Cmd {
 	}
 }
 
-func openURLCmd(url string) tea.Cmd {
+func openURLCmd(raw string) tea.Cmd {
 	return func() tea.Msg {
-		openBrowser(url)
+		u, ok := sanitize.WebURL(raw)
+		if !ok {
+			return errMsg{fmt.Errorf("refusing to open %q", sanitize.Line(raw))}
+		}
+		openBrowser(u)
 		return nil
 	}
 }
@@ -604,6 +683,9 @@ func openBrowser(url string) {
 // Run starts the full-screen TUI program.
 func Run(o Options) error {
 	m := New(o)
+	if m.autoRefreshRootCancel != nil {
+		defer m.autoRefreshRootCancel()
+	}
 	m.screen = newScreen(os.Stdout)
 	p := tea.NewProgram(m, tea.WithOutput(m.screen))
 	_, err := p.Run()

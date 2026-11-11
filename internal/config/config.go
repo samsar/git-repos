@@ -15,15 +15,33 @@ import (
 )
 
 type Config struct {
-	Dirs            []string                   `json:"dirs"`
-	Hidden          []string                   `json:"hidden,omitempty"`
-	AutoRefreshMins int                        `json:"auto_refresh_mins,omitempty"` // 0 = disabled
-	BootFetch       bool                       `json:"boot_fetch,omitempty"`        // run git fetch at startup
-	Keys            map[string]json.RawMessage `json:"keys,omitempty"`              // binding name → your keys, over its defaults (KeyMap)
-	DefaultEditor   string                     `json:"default_editor,omitempty"`    // the editor e opens a repo in
-	Editors         []launch.Editor            `json:"editors,omitempty"`           // yours, over the presets of their names
-	Terminal        []string                   `json:"terminal,omitempty"`          // opens a window: {path} the repo, {cmd} the editor
+	Dirs             []string                   `json:"dirs"`
+	Hidden           []string                   `json:"hidden,omitempty"`
+	AutoRefreshMins  int                        `json:"auto_refresh_mins,omitempty"`  // 0 = disabled
+	AutoRefreshFetch *bool                      `json:"auto_refresh_fetch,omitempty"` // nil = true: fetch on each timer tick
+	BootFetch        bool                       `json:"boot_fetch,omitempty"`         // run git fetch at startup
+	CheckUpdates     *bool                      `json:"check_updates,omitempty"`      // nil = true: check GitHub for a new release
+	Keys             map[string]json.RawMessage `json:"keys,omitempty"`               // binding name → your keys, over its defaults (KeyMap)
+	DefaultEditor    string                     `json:"default_editor,omitempty"`     // the editor e opens a repo in
+	Editors          []launch.Editor            `json:"editors,omitempty"`            // yours, over the presets of their names
+	Terminal         []string                   `json:"terminal,omitempty"`           // opens a window: {path} the repo, {cmd} the editor
 }
+
+// AutoRefreshFetchEnabled reports whether the auto-refresh timer fetches:
+// unless config.json says otherwise, it does, since checking upstream is
+// what the timer is for.
+func (c *Config) AutoRefreshFetchEnabled() bool {
+	return c == nil || c.AutoRefreshFetch == nil || *c.AutoRefreshFetch
+}
+
+// CheckUpdatesEnabled reports whether the TUI checks GitHub for a new
+// release: unless config.json says otherwise, it does.
+func (c *Config) CheckUpdatesEnabled() bool {
+	return c == nil || c.CheckUpdates == nil || *c.CheckUpdates
+}
+
+func (c *Config) SetAutoRefreshFetch(v bool) { c.AutoRefreshFetch = &v }
+func (c *Config) SetCheckUpdates(v bool)     { c.CheckUpdates = &v }
 
 // KeyList is a binding's keys in config.json: one key as a string
 // ("search": "f"), several as a list ("move_down": ["j", "x"]), or none
@@ -127,18 +145,26 @@ func LoadFrom(path string) (*Config, error) {
 // beside it, then renamed over it, so a write cut short never leaves a
 // config git-repos can't read. A config file that is a symlink (into a
 // dotfiles repo, say) stays one: the file it points to is the one
-// written. The file keeps its mode.
+// written. The file keeps its mode, without group or other access, and
+// the directory is private to the user.
 func Save(cfg *Config) error {
 	path := Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	tightenDir(dir)
 	if target, err := filepath.EvalSymlinks(path); err == nil {
 		path = target
 	}
-	mode := os.FileMode(0o644)
+	mode := os.FileMode(0o600)
 	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
+		mode = info.Mode().Perm() & 0o600
+		if mode == 0 {
+			// No owner access would leave the renamed config unreadable;
+			// 0600 is the least surprising repair.
+			mode = 0o600
+		}
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -161,6 +187,16 @@ func Save(cfg *Config) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// tightenDir removes group and other access from an existing config
+// directory; a symlink is left alone, as it may point at a dotfiles
+// directory holding more than this config.
+func tightenDir(dir string) {
+	info, err := os.Lstat(dir)
+	if err == nil && info.IsDir() && info.Mode().Perm()&0o077 != 0 {
+		_ = os.Chmod(dir, 0o700)
+	}
 }
 
 // PromptSetup asks which directory to scan and saves it into existing,

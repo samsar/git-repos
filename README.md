@@ -83,6 +83,11 @@ git repos config reset
 - `git` on your PATH
 - [`gh`](https://cli.github.com/) on your PATH and authenticated — only needed for PR lookup, everything else works without it
 
+git-repos disables a repository's local hooks and filesystem monitor, the
+insecure `git://` transport, and credential prompts; fetch and pull also
+use the standard `git-upload-pack`. A pull started from git-repos therefore
+doesn't run that repository's hooks either.
+
 ## TUI keys
 
 ### Navigation
@@ -147,6 +152,21 @@ git repos keys check    # check config.json's keys: unknown names, keys bound tw
 
 If config.json's keys have a problem, the TUI uses the default keys and says so in its status bar.
 
+## Settings
+
+`z` opens settings: auto-refresh interval, fetch on startup, fetch on auto-refresh, update check, and default editor. The same values live in `~/.config/git-repos/config.json`:
+
+```json
+{
+  "auto_refresh_mins": 10,
+  "auto_refresh_fetch": true,
+  "boot_fetch": false,
+  "check_updates": true
+}
+```
+
+`auto_refresh_fetch: false` re-scans local state on the timer without contacting remotes. `check_updates: false` skips the GitHub release check.
+
 ## PR page
 
 `Tab` switches between your repos and a page of every open PR on your GitHub account: yours, and those asking for your review, each in a section of its own, both at once. `f` shows only yours, only those asking for your review, or both again. Each PR shows its checks, its review decision, when it was last updated, and whether you have it cloned (`cloned`) or checked out (`✓ here`) in the directories git-repos scans. Its status icon reads like the repos': `!` checks failing or changes requested, `↑` checks running or a review to come, `✓` ready, `·` draft.
@@ -186,7 +206,7 @@ Tabs and windows open in Ghostty or iTerm2 on macOS; Terminal opens a window for
 | `--no-prs`   | Skip GitHub PR lookup                                                      |
 | `--no-color` | Disable color output                                                       |
 | `--plain`    | Plain text instead of TUI                                                  |
-| `--json`     | JSON output                                                                |
+| `--json`     | JSON output (credentials in remote URLs are redacted)                      |
 
 ## Releasing
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -41,11 +42,61 @@ type RepoInfo struct {
 	Error          string   `json:"error,omitempty"`
 }
 
+// safeGitConfig overrides the repository-local Git config that can run a
+// command while a repo is scanned: core.fsmonitor runs on git status, hooks
+// on fetch and pull, and ext:: and git:// (core.gitProxy) can run helpers.
+// A scanned repository is data, not code to execute. os.DevNull is
+// /dev/null on Unix and NUL on Windows; neither is a directory, so Git
+// finds no hooks there.
+var safeGitConfig = []string{
+	"-c", "core.fsmonitor=false",
+	"-c", "core.hooksPath=" + os.DevNull,
+	"-c", "protocol.ext.allow=never",
+	"-c", "protocol.git.allow=never",
+}
+
+// hardenedGitArgs puts safeGitConfig on every git command, after the
+// program and before its own arguments. fetch and pull also take
+// --upload-pack: a repository-local remote.<name>.uploadpack can name a
+// program that runs locally on a file:// or path fetch.
+func hardenedGitArgs(args []string) []string {
+	if len(args) == 0 || strings.TrimSuffix(filepath.Base(args[0]), ".exe") != "git" {
+		return args
+	}
+	out := make([]string, 0, len(args)+len(safeGitConfig)+1)
+	out = append(out, args[0])
+	out = append(out, safeGitConfig...)
+	if len(args) > 1 && (args[1] == "fetch" || args[1] == "pull") {
+		out = append(out, args[1], "--upload-pack=git-upload-pack")
+		return append(out, args[2:]...)
+	}
+	return append(out, args[1:]...)
+}
+
+// gitEnv is this process's environment, without its git prompt and lock
+// settings: a scan never prompts for credentials, nor takes optional locks.
+func gitEnv() []string {
+	env := os.Environ()
+	out := env[:0]
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GIT_TERMINAL_PROMPT=") || strings.HasPrefix(kv, "GIT_OPTIONAL_LOCKS=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
+}
+
 func RunCmd(args []string, cwd string, timeout time.Duration) (stdout, stderr string, code int) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	c := exec.CommandContext(ctx, args[0], args[1:]...)
+	full := hardenedGitArgs(args)
+	c := exec.CommandContext(ctx, full[0], full[1:]...)
 	c.Dir = cwd
+	c.Env = gitEnv()
+	// A child of the command, such as a hook, can't hold its output open past
+	// the deadline.
+	c.WaitDelay = time.Second
 	var ob, eb bytes.Buffer
 	c.Stdout = &ob
 	c.Stderr = &eb

@@ -181,16 +181,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case autoRefreshMsg:
-		if m.autoRefreshMins > 0 {
-			if m.state == stateList && !m.refreshing && !m.fetchingPR {
-				m.refreshing = true
-				m.refreshRepos = nil
-				m.scanDone, m.scanTotal = 0, 0
-				return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, true), autoRefreshTickCmd(m.autoRefreshMins))
-			}
-			return m, autoRefreshTickCmd(m.autoRefreshMins)
+		if msg.gen != m.autoRefreshGen {
+			return m, nil
 		}
-		return m, nil
+		next := autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen)
+		m.autoRefreshRunning = next != nil
+		if m.autoRefreshMins <= 0 {
+			return m, nil
+		}
+		if m.state == stateList && !m.refreshing && !m.fetchingPR {
+			m.refreshing = true
+			m.refreshRepos = nil
+			m.scanDone, m.scanTotal = 0, 0
+			return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, m.autoRefreshFetch), next)
+		}
+		return m, next
 
 	case editorOpenedMsg:
 		return m.onEditorOpened(msg), nil
@@ -423,6 +428,7 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 
 	case keys.Settings:
 		m.state, m.settingsFrom = stateSettings, stateList
+		m.settingsAutoRefreshMins = m.autoRefreshMins
 
 	case keys.Refresh:
 		if !m.refreshing {
@@ -576,6 +582,7 @@ func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
 
 	case keys.Settings:
 		m.state, m.settingsFrom = stateSettings, stateDetail
+		m.settingsAutoRefreshMins = m.autoRefreshMins
 	}
 	return m, nil
 }
@@ -606,7 +613,7 @@ func (m model) handleSettingsEditKey(key string) (tea.Model, tea.Cmd) {
 }
 
 // settingsRows is how many settings the settings view lists.
-const settingsRows = 3
+const settingsRows = 5
 
 func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 	switch action {
@@ -625,7 +632,11 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
 		case 1: // boot_fetch — toggle
 			m.bootFetch = !m.bootFetch
-		case 2: // default_editor — the next one
+		case 2: // auto_refresh_fetch — toggle
+			m.autoRefreshFetch = !m.autoRefreshFetch
+		case 3: // check_updates — toggle
+			m.checkUpdates = !m.checkUpdates
+		case 4: // default_editor — the next one
 			m.defaultEditor = m.nextDefaultEditor()
 		}
 	case keys.Edit:
@@ -639,8 +650,13 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 			m.statusMsg = "couldn't save settings: " + err.Error()
 		}
 		var cmds []tea.Cmd
-		if m.autoRefreshMins > 0 {
-			cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
+		if m.autoRefreshMins != m.settingsAutoRefreshMins ||
+			(m.autoRefreshMins > 0 && !m.autoRefreshRunning) {
+			var cmd tea.Cmd
+			m, cmd = m.restartAutoRefresh()
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		// Back to the detail view they were opened from, opened again on
 		// its repo, wherever pulls and lookups meanwhile sorted it, at the

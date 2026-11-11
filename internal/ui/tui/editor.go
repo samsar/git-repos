@@ -15,6 +15,7 @@ import (
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/launch"
+	"github.com/samsar/git-repos/internal/ui/sanitize"
 )
 
 // openTimeout bounds opening a terminal window: a terminal app or tmux
@@ -175,9 +176,9 @@ func (m model) describe(e launch.Editor) string {
 	case e.InTerminal() && !m.openerOK:
 		return "here (this terminal can't open tabs or windows)"
 	case e.InTerminal() && len(e.Cmd) == 0:
-		return "a shell in a new " + m.opener.Name + " " + m.opener.Kind(e)
+		return "a shell in a new " + sanitize.Line(m.opener.Name) + " " + m.opener.Kind(e)
 	case e.InTerminal():
-		return "in a new " + m.opener.Name + " " + m.opener.Kind(e)
+		return "in a new " + sanitize.Line(m.opener.Name) + " " + m.opener.Kind(e)
 	}
 	return e.Describe()
 }
@@ -200,9 +201,9 @@ func (m model) viewPicker(headerLines []string) string {
 	def, _ := m.theDefaultEditor()
 	nameW := 0
 	for _, e := range m.editors {
-		nameW = max(nameW, lipgloss.Width(e.Name))
+		nameW = max(nameW, lipgloss.Width(sanitize.Line(e.Name)))
 	}
-	lines := []string{"", titleS.Render("  Open " + r.Name + " in…"), ""}
+	lines := []string{"", titleS.Render("  Open " + sanitize.Line(r.Name) + " in…"), ""}
 	// The editors the screen has room for, around the one selected:
 	// all but the header, its line, these lines and the status bar.
 	room := max(1, m.height-m.headerHeight()-1-6-1)
@@ -220,7 +221,7 @@ func (m model) viewPicker(headerLines []string) string {
 		if i == m.pickerCursor {
 			mark, nameS = cyanS.Render("  › "), selS
 		}
-		line := mark + cyanS.Render(num) + nameS.Render(fmt.Sprintf("%-*s", nameW, e.Name)) + fill.Render("  ") + dimS.Render(m.describe(e))
+		line := mark + cyanS.Render(num) + nameS.Render(fmt.Sprintf("%-*s", nameW, sanitize.Line(e.Name))) + fill.Render("  ") + dimS.Render(m.describe(e))
 		if e.Name == def.Name {
 			line += dimS.Render("  · default")
 		}

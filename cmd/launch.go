@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/samsar/git-repos/internal/launch"
+	"github.com/samsar/git-repos/internal/ui/sanitize"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,10 @@ var launchCmd = &cobra.Command{
 		if err == nil {
 			err = launch.Run(h)
 		}
-		fmt.Fprintf(os.Stderr, "git-repos: %v\npress Enter to close\n", err)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "git-repos: %v\n", sanitize.Line(err.Error()))
+		}
+		fmt.Fprintln(os.Stderr, "press Enter to close")
 		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 		return err
 	},

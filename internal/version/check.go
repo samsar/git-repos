@@ -1,6 +1,7 @@
 package version
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -13,6 +14,9 @@ import (
 const (
 	Repo     = "samsar/git-repos"
 	CacheTTL = 24 * time.Hour
+	// fetchTimeout bounds the release check: a gh that hangs on the network
+	// must not leave the TUI with a command waiting for ever.
+	fetchTimeout = 5 * time.Second
 )
 
 type cacheEntry struct {
@@ -45,14 +49,28 @@ func readCache() (string, bool) {
 
 func writeCache(version string) {
 	p := cachePath()
-	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	dir := filepath.Dir(p)
+	_ = os.MkdirAll(dir, 0o700)
+	if info, err := os.Lstat(dir); err == nil && info.IsDir() && info.Mode().Perm()&0o077 != 0 {
+		_ = os.Chmod(dir, 0o700)
+	}
 	data, _ := json.Marshal(cacheEntry{Version: version, CheckedAt: time.Now()})
-	_ = os.WriteFile(p, data, 0o644)
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return
+	}
+	_ = f.Chmod(0o600) // tighten a cache written before
+	_, _ = f.Write(data)
+	_ = f.Close()
 }
 
 // FetchLatest returns the latest release tag from GitHub.
 // It uses the cache if fresh, otherwise calls gh CLI.
 func FetchLatest() string {
+	return fetchLatest(fetchTimeout)
+}
+
+func fetchLatest(timeout time.Duration) string {
 	if v, ok := readCache(); ok {
 		return v
 	}
@@ -60,8 +78,12 @@ func FetchLatest() string {
 	if err != nil {
 		return ""
 	}
-	out, err := exec.Command(ghPath, "release", "list",
-		"--repo", Repo, "--limit", "1", "--json", "tagName", "-q", ".[0].tagName").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ghPath, "release", "list",
+		"--repo", Repo, "--limit", "1", "--json", "tagName", "-q", ".[0].tagName")
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
