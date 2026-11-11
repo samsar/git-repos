@@ -83,6 +83,10 @@ git repos config reset
 - `git` on your PATH
 - [`gh`](https://cli.github.com/) on your PATH and authenticated — only needed for PR lookup, everything else works without it
 
+git-repos disables a repository's local hooks and filesystem monitor, and
+credential prompts, on every Git command it runs. A pull started from
+git-repos therefore doesn't run that repository's hooks either.
+
 ## TUI keys
 
 ### Navigation
@@ -186,7 +190,7 @@ Tabs and windows open in Ghostty or iTerm2 on macOS; Terminal opens a window for
 | `--no-prs`   | Skip GitHub PR lookup                                                      |
 | `--no-color` | Disable color output                                                       |
 | `--plain`    | Plain text instead of TUI                                                  |
-| `--json`     | JSON output                                                                |
+| `--json`     | JSON output (credentials in remote URLs are redacted)                      |
 
 ## Releasing
 

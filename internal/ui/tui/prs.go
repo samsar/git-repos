@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
+	"github.com/samsar/git-repos/internal/ui/sanitize"
 )
 
 // The PR page lists your open PRs and those asking for your review, in a
@@ -258,7 +259,7 @@ func (m model) viewPRs() string {
 // why there are no PRs to show.
 func (m model) prRows() []string {
 	say := func(text string) []string {
-		return []string{dimStyle.Width(m.width).Render(ansi.Truncate("  "+text, m.width, "…"))}
+		return []string{dimStyle.Width(m.width).Render(ansi.Truncate("  "+sanitize.Line(text), m.width, "…"))}
 	}
 	switch {
 	case m.noPRs:
@@ -344,10 +345,10 @@ func (m model) prColWidths() prCols {
 	const minTitle = 20
 	c := prCols{repo: len("REPO"), num: len("#"), title: len("TITLE"), author: len("AUTHOR"), showAuthor: true}
 	for _, pr := range m.displayPRs() {
-		c.repo = max(c.repo, lipgloss.Width(pr.Repo))
+		c.repo = max(c.repo, lipgloss.Width(sanitize.Line(pr.Repo)))
 		c.num = max(c.num, len("#"+strconv.Itoa(pr.Number)))
-		c.title = max(c.title, lipgloss.Width(pr.Title))
-		c.author = max(c.author, lipgloss.Width(pr.Author))
+		c.title = max(c.title, lipgloss.Width(sanitize.Line(pr.Title)))
+		c.author = max(c.author, lipgloss.Width(sanitize.Line(pr.Author)))
 	}
 	c.repo = min(c.repo, 40)
 	c.author = min(c.author, 18)

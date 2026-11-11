@@ -12,6 +12,7 @@ import (
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/launch"
 	"github.com/samsar/git-repos/internal/ui/plain"
+	"github.com/samsar/git-repos/internal/ui/sanitize"
 	"github.com/samsar/git-repos/internal/ui/tui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -48,7 +49,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "warning: no config found; defaulting scan directory to current working directory: %s\n", cwd)
+			fmt.Fprintf(os.Stderr, "warning: no config found; defaulting scan directory to current working directory: %s\n", sanitize.Line(cwd))
 			scanDirs = []string{cwd}
 		default:
 			cfg, err = config.PromptSetup(cfg)
@@ -78,7 +79,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 			warnPRs(prs, err)
 		}
 		git.SortRepos(repos)
-		return json.NewEncoder(os.Stdout).Encode(repos)
+		return json.NewEncoder(os.Stdout).Encode(redactRepoURLs(repos))
 	}
 
 	// Plain mode: non-TTY, --plain, or --no-color
@@ -116,10 +117,29 @@ func runScan(cmd *cobra.Command, args []string) error {
 func warnPRs(prs git.PRs, err error) {
 	switch {
 	case err != nil:
-		fmt.Fprintf(os.Stderr, "warning: couldn't look up PRs: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: couldn't look up PRs: %v\n", sanitize.Line(err.Error()))
 	case prs.Warning != "":
-		fmt.Fprintf(os.Stderr, "warning: GitHub left some PRs out: %s\n", prs.Warning)
+		fmt.Fprintf(os.Stderr, "warning: GitHub left some PRs out: %s\n", sanitize.Line(prs.Warning))
 	}
+}
+
+// redactRepoURLs is repos with credentials in remote and PR URLs masked:
+// --json can end up in a log, a ticket or a CI artifact.
+func redactRepoURLs(repos []git.RepoInfo) []git.RepoInfo {
+	out := make([]git.RepoInfo, len(repos))
+	for i, r := range repos {
+		out[i] = r
+		out[i].RemoteURL = git.RedactURL(r.RemoteURL)
+		out[i].PRUrl = git.RedactURL(r.PRUrl)
+		if len(r.Remotes) > 0 {
+			out[i].Remotes = make([]git.Remote, len(r.Remotes))
+			for j, rem := range r.Remotes {
+				out[i].Remotes[j] = rem
+				out[i].Remotes[j].URL = git.RedactURL(rem.URL)
+			}
+		}
+	}
+	return out
 }
 
 func buildHiddenSet(cfg *config.Config) map[string]bool {

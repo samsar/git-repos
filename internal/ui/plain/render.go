@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/samsar/git-repos/internal/git"
+	"github.com/samsar/git-repos/internal/ui/sanitize"
 	"golang.org/x/term"
 )
 
@@ -60,7 +61,7 @@ func Run(dirs []string, doFetch, fetchPRs, noColor bool, hidden map[string]bool)
 	for _, dir := range dirs {
 		repoDirs, err := git.FindRepoDirs(dir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cannot read %s: %v\n", dir, err)
+			fmt.Fprintf(os.Stderr, "cannot read %s: %v\n", sanitize.Line(dir), sanitize.Line(err.Error()))
 			continue
 		}
 		total += len(repoDirs)
@@ -101,10 +102,10 @@ func Run(dirs []string, doFetch, fetchPRs, noColor bool, hidden map[string]bool)
 		switch {
 		case err != nil:
 			fmt.Printf("\r%sPR lookup failed          %s\n", cDim, cReset)
-			fmt.Fprintf(os.Stderr, "warning: couldn't look up PRs: %v\n", err)
+			fmt.Fprintf(os.Stderr, "warning: couldn't look up PRs: %v\n", sanitize.Line(err.Error()))
 		case prs.Warning != "":
 			fmt.Printf("\r%sPR lookup done (%d matched)          %s\n", cDim, matched, cReset)
-			fmt.Fprintf(os.Stderr, "warning: GitHub left some PRs out: %s\n", prs.Warning)
+			fmt.Fprintf(os.Stderr, "warning: GitHub left some PRs out: %s\n", sanitize.Line(prs.Warning))
 		default:
 			fmt.Printf("\r%sPR lookup done (%d matched)          %s\n", cDim, matched, cReset)
 		}
@@ -135,7 +136,7 @@ func printTable(repos []git.RepoInfo) {
 	now := time.Now().Unix()
 	for _, info := range repos {
 		if info.Error != "" {
-			fmt.Printf("   %s%-*s ERROR: %s%s\n", cDim, wRepo, trunc(info.Name, wRepo), info.Error, cReset)
+			fmt.Printf("   %s%-*s ERROR: %s%s\n", cDim, wRepo, trunc(info.Name, wRepo), sanitize.Line(info.Error), cReset)
 			continue
 		}
 
@@ -148,7 +149,7 @@ func printTable(repos []git.RepoInfo) {
 		prNote := ""
 		if info.PRNumber > 0 {
 			prCol = fmt.Sprintf("#%d", info.PRNumber)
-			prNote = fmt.Sprintf("  %s%s%s", cDim, info.PRUrl, cReset)
+			prNote = fmt.Sprintf("  %s%s%s", cDim, sanitize.Line(git.RedactURL(info.PRUrl)), cReset)
 		}
 
 		fmt.Printf("%s%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %s%s%s\n",
@@ -198,7 +199,7 @@ func printSummary(repos []git.RepoInfo) {
 				parts = append(parts, "…")
 				break
 			}
-			parts = append(parts, fmt.Sprintf("%s(↑%d)", r.Name, r.Ahead))
+			parts = append(parts, fmt.Sprintf("%s(↑%d)", sanitize.Line(r.Name), r.Ahead))
 		}
 		fmt.Printf("  %s%d need push%s: %s\n", cYellow, len(needsPush), cReset, strings.Join(parts, ", "))
 	}
@@ -209,21 +210,21 @@ func printSummary(repos []git.RepoInfo) {
 				parts = append(parts, "…")
 				break
 			}
-			parts = append(parts, fmt.Sprintf("%s(%s)", r.Name, r.Branch))
+			parts = append(parts, fmt.Sprintf("%s(%s)", sanitize.Line(r.Name), sanitize.Line(r.Branch)))
 		}
 		fmt.Printf("  %s%d on non-main branch%s: %s\n", cYellow, len(onBranch), cReset, strings.Join(parts, ", "))
 	}
 	if len(hasPR) > 0 {
 		parts := make([]string, 0, len(hasPR))
 		for _, r := range hasPR {
-			parts = append(parts, fmt.Sprintf("%s #%d", r.Name, r.PRNumber))
+			parts = append(parts, fmt.Sprintf("%s #%d", sanitize.Line(r.Name), r.PRNumber))
 		}
 		fmt.Printf("  %s%d with open PR%s: %s\n", cCyan, len(hasPR), cReset, strings.Join(parts, ", "))
 	}
 	if len(hasStash) > 0 {
 		parts := make([]string, 0, len(hasStash))
 		for _, r := range hasStash {
-			parts = append(parts, fmt.Sprintf("%s(%d)", r.Name, r.StashCount))
+			parts = append(parts, fmt.Sprintf("%s(%d)", sanitize.Line(r.Name), r.StashCount))
 		}
 		fmt.Printf("  %s%d with stashed changes%s: %s\n", cMagenta, len(hasStash), cReset, strings.Join(parts, ", "))
 	}
@@ -255,6 +256,7 @@ func rowColor(info git.RepoInfo, now int64) (color, icon string) {
 }
 
 func trunc(s string, n int) string {
+	s = sanitize.Line(s)
 	r := []rune(s)
 	if len(r) <= n {
 		return s
@@ -269,7 +271,7 @@ func repoNameList(repos []git.RepoInfo, max int) string {
 			parts = append(parts, "…")
 			break
 		}
-		parts = append(parts, r.Name)
+		parts = append(parts, sanitize.Line(r.Name))
 	}
 	return strings.Join(parts, ", ")
 }

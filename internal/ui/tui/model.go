@@ -18,6 +18,7 @@ import (
 	"github.com/samsar/git-repos/internal/git"
 	"github.com/samsar/git-repos/internal/keys"
 	"github.com/samsar/git-repos/internal/launch"
+	"github.com/samsar/git-repos/internal/ui/sanitize"
 	"github.com/samsar/git-repos/internal/version"
 )
 
@@ -397,8 +398,8 @@ func (m model) colWidths() (repo, branch, sync, msg int) {
 	// of a fixed cap.
 	repoPref, branchPref := repoMin, branchMin
 	for i := range m.repos {
-		repoPref = max(repoPref, lipgloss.Width(m.repos[i].Name))
-		branchPref = max(branchPref, lipgloss.Width(m.repos[i].Branch))
+		repoPref = max(repoPref, lipgloss.Width(sanitize.Line(m.repos[i].Name)))
+		branchPref = max(branchPref, lipgloss.Width(sanitize.Line(m.repos[i].Branch)))
 	}
 	repoPref = min(repoPref, repoCap)
 	branchPref = min(branchPref, branchCap)
@@ -583,9 +584,13 @@ func deleteRepoDirCmd(info git.RepoInfo) tea.Cmd {
 	}
 }
 
-func openURLCmd(url string) tea.Cmd {
+func openURLCmd(raw string) tea.Cmd {
 	return func() tea.Msg {
-		openBrowser(url)
+		u, ok := sanitize.WebURL(raw)
+		if !ok {
+			return errMsg{fmt.Errorf("refusing to open %q", sanitize.Line(raw))}
+		}
+		openBrowser(u)
 		return nil
 	}
 }

@@ -137,7 +137,7 @@ func IsMainBranch(b string) bool {
 type SortColumn int
 
 const (
-	SortStatus      SortColumn = iota
+	SortStatus SortColumn = iota
 	SortName
 	SortBranch
 	SortSync

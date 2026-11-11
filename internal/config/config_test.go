@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -104,5 +105,40 @@ func TestSaveKeepsSymlinkAndMode(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Dir(dotfiles))
 	if len(entries) != 1 {
 		t.Errorf("left beside the config: %v", entries)
+	}
+}
+
+// A config and its directory that other users could read are made private
+// the next time the config is saved.
+func TestSaveTightensPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows doesn't model Unix permission bits")
+	}
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+	dir := filepath.Join(root, "git-repos")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(&Config{BootFetch: true}); err != nil {
+		t.Fatal(err)
+	}
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Errorf("config directory mode %v, want 0700", got)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Errorf("config file mode %v, want 0600", got)
 	}
 }

@@ -127,18 +127,24 @@ func LoadFrom(path string) (*Config, error) {
 // beside it, then renamed over it, so a write cut short never leaves a
 // config git-repos can't read. A config file that is a symlink (into a
 // dotfiles repo, say) stays one: the file it points to is the one
-// written. The file keeps its mode.
+// written. The file keeps its mode, without group or other access, and
+// the directory is private to the user.
 func Save(cfg *Config) error {
 	path := Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	tightenDir(dir)
 	if target, err := filepath.EvalSymlinks(path); err == nil {
 		path = target
 	}
-	mode := os.FileMode(0o644)
+	mode := os.FileMode(0o600)
 	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
+		mode = info.Mode().Perm() & 0o600
+		if mode == 0 {
+			mode = 0o600
+		}
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -161,6 +167,16 @@ func Save(cfg *Config) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// tightenDir removes group and other access from an existing config
+// directory; a symlink is left alone, as it may point at a dotfiles
+// directory holding more than this config.
+func tightenDir(dir string) {
+	info, err := os.Lstat(dir)
+	if err == nil && info.IsDir() && info.Mode().Perm()&0o077 != 0 {
+		_ = os.Chmod(dir, 0o700)
+	}
 }
 
 // PromptSetup asks which directory to scan and saves it into existing,
