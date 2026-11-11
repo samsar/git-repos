@@ -94,21 +94,23 @@ func runScan(cmd *cobra.Command, args []string) error {
 	bindings, keyProblems := resolveKeys(cfg)
 	opener, openerOK := launch.DetectOpener(cfg.Terminal, os.Getenv, runtime.GOOS)
 	return tui.Run(tui.Options{
-		Dirs:            scanDirs,
-		Fetch:           flagFetch || cfg.BootFetch,
-		PRs:             !flagNoPRs,
-		Hidden:          hidden,
-		AutoRefreshMins: cfg.AutoRefreshMins,
-		BootFetch:       cfg.BootFetch,
-		ConfigPath:      config.Path(),
-		Version:         Version,
-		Bindings:        bindings,
-		KeyProblems:     keyProblems,
-		Editors:         launch.Available(cfg.Editors, exec.LookPath),
-		DefaultEditor:   cfg.DefaultEditor,
-		EditorProblems:  launch.Check(cfg.Editors),
-		Opener:          opener,
-		OpenerOK:        openerOK,
+		Dirs:             scanDirs,
+		Fetch:            flagFetch || cfg.BootFetch,
+		PRs:              !flagNoPRs,
+		Hidden:           hidden,
+		AutoRefreshMins:  cfg.AutoRefreshMins,
+		AutoRefreshFetch: cfg.AutoRefreshFetchEnabled(),
+		BootFetch:        cfg.BootFetch,
+		CheckUpdates:     cfg.CheckUpdatesEnabled(),
+		ConfigPath:       config.Path(),
+		Version:          Version,
+		Bindings:         bindings,
+		KeyProblems:      keyProblems,
+		Editors:          launch.Available(cfg.Editors, exec.LookPath),
+		DefaultEditor:    cfg.DefaultEditor,
+		EditorProblems:   launch.Check(cfg.Editors),
+		Opener:           opener,
+		OpenerOK:         openerOK,
 	})
 }
 

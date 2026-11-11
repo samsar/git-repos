@@ -15,15 +15,33 @@ import (
 )
 
 type Config struct {
-	Dirs            []string                   `json:"dirs"`
-	Hidden          []string                   `json:"hidden,omitempty"`
-	AutoRefreshMins int                        `json:"auto_refresh_mins,omitempty"` // 0 = disabled
-	BootFetch       bool                       `json:"boot_fetch,omitempty"`        // run git fetch at startup
-	Keys            map[string]json.RawMessage `json:"keys,omitempty"`              // binding name → your keys, over its defaults (KeyMap)
-	DefaultEditor   string                     `json:"default_editor,omitempty"`    // the editor e opens a repo in
-	Editors         []launch.Editor            `json:"editors,omitempty"`           // yours, over the presets of their names
-	Terminal        []string                   `json:"terminal,omitempty"`          // opens a window: {path} the repo, {cmd} the editor
+	Dirs             []string                   `json:"dirs"`
+	Hidden           []string                   `json:"hidden,omitempty"`
+	AutoRefreshMins  int                        `json:"auto_refresh_mins,omitempty"`  // 0 = disabled
+	AutoRefreshFetch *bool                      `json:"auto_refresh_fetch,omitempty"` // nil = true: fetch on each timer tick
+	BootFetch        bool                       `json:"boot_fetch,omitempty"`         // run git fetch at startup
+	CheckUpdates     *bool                      `json:"check_updates,omitempty"`      // nil = true: check GitHub for a new release
+	Keys             map[string]json.RawMessage `json:"keys,omitempty"`               // binding name → your keys, over its defaults (KeyMap)
+	DefaultEditor    string                     `json:"default_editor,omitempty"`     // the editor e opens a repo in
+	Editors          []launch.Editor            `json:"editors,omitempty"`            // yours, over the presets of their names
+	Terminal         []string                   `json:"terminal,omitempty"`           // opens a window: {path} the repo, {cmd} the editor
 }
+
+// AutoRefreshFetchEnabled reports whether the auto-refresh timer fetches:
+// unless config.json says otherwise, it does, since checking upstream is
+// what the timer is for.
+func (c *Config) AutoRefreshFetchEnabled() bool {
+	return c == nil || c.AutoRefreshFetch == nil || *c.AutoRefreshFetch
+}
+
+// CheckUpdatesEnabled reports whether the TUI checks GitHub for a new
+// release: unless config.json says otherwise, it does.
+func (c *Config) CheckUpdatesEnabled() bool {
+	return c == nil || c.CheckUpdates == nil || *c.CheckUpdates
+}
+
+func (c *Config) SetAutoRefreshFetch(v bool) { c.AutoRefreshFetch = &v }
+func (c *Config) SetCheckUpdates(v bool)     { c.CheckUpdates = &v }
 
 // KeyList is a binding's keys in config.json: one key as a string
 // ("search": "f"), several as a list ("move_down": ["j", "x"]), or none

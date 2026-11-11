@@ -110,7 +110,7 @@ func TestOpenEditorFails(t *testing.T) {
 func TestSettingsDefaultEditor(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m, _ := withEditors(t)
-	m.state, m.settingsCursor = stateSettings, 2
+	m.state, m.settingsCursor = stateSettings, 4
 	m = press(m, "enter")
 	if e, _ := m.theDefaultEditor(); e.Name != "second" {
 		t.Errorf("default %q after one press", e.Name)

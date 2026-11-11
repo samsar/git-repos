@@ -164,12 +164,14 @@ type model struct {
 	screen *screen
 
 	// config
-	scanDirs        []string
-	doFetch         bool
-	noPRs           bool
-	autoRefreshMins int
-	bootFetch       bool
-	configPath      string
+	scanDirs         []string
+	doFetch          bool
+	noPRs            bool
+	autoRefreshMins  int
+	autoRefreshFetch bool
+	bootFetch        bool
+	checkUpdates     bool
+	configPath       string
 
 	// versions
 	version    string
@@ -260,14 +262,16 @@ type model struct {
 
 // Options is how the TUI runs: what it scans, and what config.json says.
 type Options struct {
-	Dirs            []string
-	Fetch           bool // git fetch in every repo as it scans
-	PRs             bool // look up open GitHub PRs
-	Hidden          map[string]bool
-	AutoRefreshMins int
-	BootFetch       bool
-	ConfigPath      string
-	Version         string
+	Dirs             []string
+	Fetch            bool // git fetch in every repo as it scans
+	PRs              bool // look up open GitHub PRs
+	Hidden           map[string]bool
+	AutoRefreshMins  int
+	AutoRefreshFetch bool // fetch on each auto-refresh tick
+	BootFetch        bool
+	CheckUpdates     bool // check GitHub for a newer release at startup
+	ConfigPath       string
+	Version          string
 	// Bindings are the keys, and KeyProblems config.json's keys' problems,
 	// the default keys in use when it has any.
 	Bindings    []keys.Binding
@@ -292,26 +296,28 @@ func New(o Options) model {
 		statusMsg = "config.json's editors are left out: " + o.EditorProblems[0] + " (git repos editors lists them)"
 	}
 	return model{
-		keys:            keymap{bindings: o.Bindings},
-		keyProblems:     o.KeyProblems,
-		editors:         o.Editors,
-		defaultEditor:   o.DefaultEditor,
-		opener:          o.Opener,
-		openerOK:        o.OpenerOK,
-		statusMsg:       statusMsg,
-		scanDirs:        o.Dirs,
-		doFetch:         o.Fetch,
-		noPRs:           !o.PRs,
-		state:           stateScanning,
-		spinner:         newSpinner(),
-		sortCol:         git.SortStatus,
-		hidden:          o.Hidden,
-		autoRefreshMins: o.AutoRefreshMins,
-		bootFetch:       o.BootFetch,
-		configPath:      o.ConfigPath,
-		version:         normalizeVersion(o.Version),
-		gitVersion:      detectCLIVersion("git", "--version"),
-		ghVersion:       detectCLIVersion("gh", "--version"),
+		keys:             keymap{bindings: o.Bindings},
+		keyProblems:      o.KeyProblems,
+		editors:          o.Editors,
+		defaultEditor:    o.DefaultEditor,
+		opener:           o.Opener,
+		openerOK:         o.OpenerOK,
+		statusMsg:        statusMsg,
+		scanDirs:         o.Dirs,
+		doFetch:          o.Fetch,
+		noPRs:            !o.PRs,
+		state:            stateScanning,
+		spinner:          newSpinner(),
+		sortCol:          git.SortStatus,
+		hidden:           o.Hidden,
+		autoRefreshMins:  o.AutoRefreshMins,
+		autoRefreshFetch: o.AutoRefreshFetch,
+		bootFetch:        o.BootFetch,
+		checkUpdates:     o.CheckUpdates,
+		configPath:       o.ConfigPath,
+		version:          normalizeVersion(o.Version),
+		gitVersion:       detectCLIVersion("git", "--version"),
+		ghVersion:        detectCLIVersion("gh", "--version"),
 	}
 }
 
@@ -364,6 +370,8 @@ func (m model) saveConfig() error {
 	}
 	cfg.AutoRefreshMins = m.autoRefreshMins
 	cfg.BootFetch = m.bootFetch
+	cfg.SetAutoRefreshFetch(m.autoRefreshFetch)
+	cfg.SetCheckUpdates(m.checkUpdates)
 	cfg.DefaultEditor = m.defaultEditor
 	return config.Save(cfg)
 }
@@ -449,7 +457,10 @@ func (m model) colWidths() (repo, branch, sync, msg int) {
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick, startScanCmd(m.scanDirs, m.doFetch), checkVersionCmd}
+	cmds := []tea.Cmd{m.spinner.Tick, startScanCmd(m.scanDirs, m.doFetch)}
+	if m.checkUpdates {
+		cmds = append(cmds, checkVersionCmd)
+	}
 	if !m.noPRs {
 		cmds = append(cmds, checkGHCmd)
 	}

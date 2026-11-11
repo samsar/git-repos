@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestWriteCacheIsPrivate(t *testing.T) {
@@ -36,5 +37,26 @@ func TestWriteCacheIsPrivate(t *testing.T) {
 	}
 	if got := dirInfo.Mode().Perm(); got != 0o700 {
 		t.Errorf("cache directory mode %v, want 0700", got)
+	}
+}
+
+// A gh that hangs must not keep the check waiting past its deadline.
+func TestFetchLatestTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX shell for the fake gh")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	start := time.Now()
+	if got := fetchLatest(100 * time.Millisecond); got != "" {
+		t.Errorf("fetchLatest = %q, want no version", got)
+	}
+	if elapsed := time.Since(start); elapsed > 4*time.Second {
+		t.Errorf("fetchLatest took %v, want it bounded by the timeout", elapsed)
 	}
 }

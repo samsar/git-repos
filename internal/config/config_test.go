@@ -142,3 +142,28 @@ func TestSaveTightensPermissions(t *testing.T) {
 		t.Errorf("config file mode %v, want 0600", got)
 	}
 }
+
+// Both optional toggles default to on, and false in the file turns them off.
+func TestToggleDefaults(t *testing.T) {
+	var cfg Config
+	if !cfg.AutoRefreshFetchEnabled() || !cfg.CheckUpdatesEnabled() {
+		t.Error("a config without the toggles should default them to on")
+	}
+	var nilCfg *Config
+	if !nilCfg.AutoRefreshFetchEnabled() || !nilCfg.CheckUpdatesEnabled() {
+		t.Error("a nil config should default the toggles to on")
+	}
+
+	var off Config
+	if err := json.Unmarshal([]byte(`{"auto_refresh_fetch":false,"check_updates":false}`), &off); err != nil {
+		t.Fatal(err)
+	}
+	if off.AutoRefreshFetchEnabled() || off.CheckUpdatesEnabled() {
+		t.Error("explicit false in the config was not honored")
+	}
+	off.SetAutoRefreshFetch(true)
+	off.SetCheckUpdates(true)
+	if !off.AutoRefreshFetchEnabled() || !off.CheckUpdatesEnabled() {
+		t.Error("setting the toggles on was not honored")
+	}
+}

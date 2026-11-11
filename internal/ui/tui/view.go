@@ -1214,6 +1214,8 @@ func (m model) viewSettings() string {
 	rows := []settingRow{
 		{"Auto-refresh (mins)", "Re-scan all repos on a timer. 0 = disabled.", "int", strconv.Itoa(m.autoRefreshMins)},
 		{"Fetch on startup", "Run git fetch in each repo at startup.", "bool", boolStr(m.bootFetch)},
+		{"Fetch on auto-refresh", "Fetch from every remote on the timer. Off re-scans local state only.", "bool", boolStr(m.autoRefreshFetch)},
+		{"Check for updates", "Ask GitHub for a newer release at startup.", "bool", boolStr(m.checkUpdates)},
 		{"Default editor", "What " + m.keys.first(keys.OpenEditor) + " opens a repo in; " + m.keys.first(keys.PickEditor) + " picks another. git repos editors lists them.", "choice", editorName},
 	}
 

@@ -186,7 +186,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshing = true
 				m.refreshRepos = nil
 				m.scanDone, m.scanTotal = 0, 0
-				return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, true), autoRefreshTickCmd(m.autoRefreshMins))
+				return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, m.autoRefreshFetch), autoRefreshTickCmd(m.autoRefreshMins))
 			}
 			return m, autoRefreshTickCmd(m.autoRefreshMins)
 		}
@@ -606,7 +606,7 @@ func (m model) handleSettingsEditKey(key string) (tea.Model, tea.Cmd) {
 }
 
 // settingsRows is how many settings the settings view lists.
-const settingsRows = 3
+const settingsRows = 5
 
 func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 	switch action {
@@ -625,7 +625,11 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 			m.settingsEditBuf = strconv.Itoa(m.autoRefreshMins)
 		case 1: // boot_fetch — toggle
 			m.bootFetch = !m.bootFetch
-		case 2: // default_editor — the next one
+		case 2: // auto_refresh_fetch — toggle
+			m.autoRefreshFetch = !m.autoRefreshFetch
+		case 3: // check_updates — toggle
+			m.checkUpdates = !m.checkUpdates
+		case 4: // default_editor — the next one
 			m.defaultEditor = m.nextDefaultEditor()
 		}
 	case keys.Edit:
