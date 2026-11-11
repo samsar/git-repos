@@ -42,6 +42,7 @@ func unsafe(r rune) bool {
 	case '\u061c', // Arabic letter mark
 		'\u200b',           // zero-width space
 		'\u200e', '\u200f', // left-to-right, right-to-left mark
+		'\u2028', '\u2029', // line and paragraph separators
 		'\u202a', '\u202b', '\u202c', '\u202d', '\u202e', // bidi embeddings and overrides
 		'\u2060',                               // word joiner
 		'\u2066', '\u2067', '\u2068', '\u2069', // bidi isolates

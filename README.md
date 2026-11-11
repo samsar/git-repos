@@ -83,9 +83,10 @@ git repos config reset
 - `git` on your PATH
 - [`gh`](https://cli.github.com/) on your PATH and authenticated — only needed for PR lookup, everything else works without it
 
-git-repos disables a repository's local hooks and filesystem monitor, and
-credential prompts, on every Git command it runs. A pull started from
-git-repos therefore doesn't run that repository's hooks either.
+git-repos disables a repository's local hooks and filesystem monitor, the
+insecure `git://` transport, and credential prompts; fetch and pull also
+use the standard `git-upload-pack`. A pull started from git-repos therefore
+doesn't run that repository's hooks either.
 
 ## TUI keys
 

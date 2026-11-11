@@ -139,6 +139,7 @@ func TestRunCmdHardensGit(t *testing.T) {
 		"core.fsmonitor=false",
 		"core.hooksPath=" + os.DevNull,
 		"protocol.ext.allow=never",
+		"protocol.git.allow=never",
 		"status",
 		"--porcelain",
 	}
@@ -152,11 +153,110 @@ func TestRunCmdHardensGit(t *testing.T) {
 		t.Errorf("the safe config follows the command: %q", got)
 	}
 
-	env, err := os.ReadFile(envFile)
+	envData, err := os.ReadFile(envFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(env) != "0 0" {
-		t.Errorf("git environment = %q, want GIT_TERMINAL_PROMPT and GIT_OPTIONAL_LOCKS 0", env)
+	if string(envData) != "0 0" {
+		t.Errorf("git environment = %q, want GIT_TERMINAL_PROMPT and GIT_OPTIONAL_LOCKS 0", envData)
+	}
+
+	// fetch and pull also choose the safe upload-pack program.
+	RunCmd([]string{"git", "fetch", "--quiet"}, "", 5*time.Second)
+	args, err = os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(args); !strings.Contains(got, "--upload-pack=git-upload-pack") || !strings.Contains(got, "fetch") {
+		t.Errorf("fetch arguments %q don't include the safe upload-pack", got)
+	}
+
+	RunCmd([]string{"git", "pull", "--ff-only"}, "", 5*time.Second)
+	args, err = os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(args); !strings.Contains(got, "--upload-pack=git-upload-pack") || !strings.Contains(got, "pull") {
+		t.Errorf("pull arguments %q don't include the safe upload-pack", got)
+	}
+}
+
+// A repository's core.gitProxy command must not run when the repo is fetched.
+func TestCollectRepoDoesNotRunGitProxy(t *testing.T) {
+	requirePOSIX(t)
+	isolatedGit(t)
+
+	repo := t.TempDir()
+	execGit(t, repo, "init", "-q")
+	execGit(t, repo, "config", "user.email", "test@example.com")
+	execGit(t, repo, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit(t, repo, "add", "file.txt")
+	execGit(t, repo, "commit", "-qm", "init")
+	execGit(t, repo, "remote", "add", "origin", "git://127.0.0.1:9/foo.git")
+
+	marker := filepath.Join(repo, "gitproxy-ran")
+	script := filepath.Join(repo, "gitproxy.sh")
+	if err := os.WriteFile(script, []byte(fmt.Sprintf("#!/bin/sh\ntouch %s\nexit 1\n", strconv.Quote(marker))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	execGit(t, repo, "config", "core.gitProxy", script)
+	_ = os.Remove(marker)
+
+	CollectRepo(repo, true)
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("core.gitProxy ran during the fetch")
+	}
+}
+
+// A repository-local remote.origin.uploadpack must not run locally on fetch.
+func TestCollectRepoDoesNotRunUploadPack(t *testing.T) {
+	requirePOSIX(t)
+	isolatedGit(t)
+
+	base := t.TempDir()
+	remote := filepath.Join(base, "remote.git")
+	execGit(t, base, "init", "-q", "--bare", remote)
+
+	repo := filepath.Join(base, "repo")
+	execGit(t, base, "init", "-q", repo)
+	execGit(t, repo, "config", "user.email", "test@example.com")
+	execGit(t, repo, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit(t, repo, "add", "file.txt")
+	execGit(t, repo, "commit", "-qm", "init")
+	execGit(t, repo, "remote", "add", "origin", remote)
+
+	marker := filepath.Join(base, "uploadpack-ran")
+	script := filepath.Join(base, "uploadpack.sh")
+	if err := os.WriteFile(script, []byte(fmt.Sprintf("#!/bin/sh\ntouch %s\nexit 1\n", strconv.Quote(marker))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	execGit(t, repo, "config", "remote.origin.uploadpack", script)
+	_ = os.Remove(marker)
+
+	CollectRepo(repo, true)
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("remote.origin.uploadpack ran during the fetch")
+	}
+}
+
+// Only git is hardened; another program's arguments are left alone.
+func TestHardenedGitArgsLeavesOtherPrograms(t *testing.T) {
+	args := []string{"gh", "api", "graphql"}
+	got := hardenedGitArgs(args)
+	if len(got) != len(args) {
+		t.Fatalf("hardenedGitArgs(%q) = %q", args, got)
+	}
+	for i := range args {
+		if got[i] != args[i] {
+			t.Fatalf("hardenedGitArgs(%q) = %q", args, got)
+		}
 	}
 }

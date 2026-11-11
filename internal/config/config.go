@@ -143,6 +143,8 @@ func Save(cfg *Config) error {
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm() & 0o600
 		if mode == 0 {
+			// No owner access would leave the renamed config unreadable;
+			// 0600 is the least surprising repair.
 			mode = 0o600
 		}
 	}

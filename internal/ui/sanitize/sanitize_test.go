@@ -17,6 +17,7 @@ func TestLine(t *testing.T) {
 		{"bare controls", "a\x07b\x00c\x7fd", "abcd"},
 		{"c1", "a\u0085b", "ab"},
 		{"newline and tab", "a\nb\tc\r\nd", "a b c  d"},
+		{"unicode separators", "a\u2028b\u2029c", "a b c"},
 		{"bidi override", "a\u202Eb", "ab"},
 		{"bidi isolate", "a\u2067b\u2069c", "abc"},
 		{"zero width", "a\u200bb\u2060c\ufeffd", "abcd"},
@@ -52,6 +53,7 @@ func TestWebURL(t *testing.T) {
 		"https://github.com/\x1b]8;;https://evil.example\x1b\\",
 		"https://github.com/\x1b[2J",
 		"https://github.com/a\nb",
+		"https://github.com/a\u2028b",
 	}
 	for _, raw := range bad {
 		if got, ok := WebURL(raw); ok {

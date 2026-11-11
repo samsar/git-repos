@@ -30,4 +30,11 @@ func TestWriteCacheIsPrivate(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Errorf("cache mode %v, want 0600", got)
 	}
+	dirInfo, err := os.Stat(filepath.Dir(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Errorf("cache directory mode %v, want 0700", got)
+	}
 }

@@ -13,8 +13,9 @@ func RedactURL(raw string) string {
 		return ""
 	}
 	if !strings.Contains(raw, "://") {
-		// scp-like user@host:path, or user:password@host:path
-		if at := strings.LastIndex(raw, "@"); at > 0 {
+		// scp-like user@host:path, or user:password@host:path. The first @
+		// separates the userinfo; a later one can be part of the path.
+		if at := strings.Index(raw, "@"); at > 0 {
 			if strings.Contains(raw[:at], ":") {
 				return "***@" + raw[at+1:]
 			}

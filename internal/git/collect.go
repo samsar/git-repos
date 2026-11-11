@@ -44,23 +44,32 @@ type RepoInfo struct {
 
 // safeGitConfig overrides the repository-local Git config that can run a
 // command while a repo is scanned: core.fsmonitor runs on git status, hooks
-// on fetch and pull, and ext:: is a remote helper. A scanned repository is
-// data, not code to execute.
+// on fetch and pull, and ext:: and git:// (core.gitProxy) can run helpers.
+// A scanned repository is data, not code to execute. os.DevNull is
+// /dev/null on Unix and NUL on Windows; neither is a directory, so Git
+// finds no hooks there.
 var safeGitConfig = []string{
 	"-c", "core.fsmonitor=false",
 	"-c", "core.hooksPath=" + os.DevNull,
 	"-c", "protocol.ext.allow=never",
+	"-c", "protocol.git.allow=never",
 }
 
 // hardenedGitArgs puts safeGitConfig on every git command, after the
-// program and before its own arguments.
+// program and before its own arguments. fetch and pull also take
+// --upload-pack: a repository-local remote.<name>.uploadpack can name a
+// program that runs locally on a file:// or path fetch.
 func hardenedGitArgs(args []string) []string {
 	if len(args) == 0 || strings.TrimSuffix(filepath.Base(args[0]), ".exe") != "git" {
 		return args
 	}
-	out := make([]string, 0, len(args)+len(safeGitConfig))
+	out := make([]string, 0, len(args)+len(safeGitConfig)+1)
 	out = append(out, args[0])
 	out = append(out, safeGitConfig...)
+	if len(args) > 1 && (args[1] == "fetch" || args[1] == "pull") {
+		out = append(out, args[1], "--upload-pack=git-upload-pack")
+		return append(out, args[2:]...)
+	}
 	return append(out, args[1:]...)
 }
 

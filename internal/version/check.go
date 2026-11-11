@@ -45,11 +45,19 @@ func readCache() (string, bool) {
 
 func writeCache(version string) {
 	p := cachePath()
-	_ = os.MkdirAll(filepath.Dir(p), 0o700)
-	data, _ := json.Marshal(cacheEntry{Version: version, CheckedAt: time.Now()})
-	if err := os.WriteFile(p, data, 0o600); err == nil {
-		_ = os.Chmod(p, 0o600) // tighten a cache written before
+	dir := filepath.Dir(p)
+	_ = os.MkdirAll(dir, 0o700)
+	if info, err := os.Lstat(dir); err == nil && info.IsDir() && info.Mode().Perm()&0o077 != 0 {
+		_ = os.Chmod(dir, 0o700)
 	}
+	data, _ := json.Marshal(cacheEntry{Version: version, CheckedAt: time.Now()})
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return
+	}
+	_ = f.Chmod(0o600) // tighten a cache written before
+	_, _ = f.Write(data)
+	_ = f.Close()
 }
 
 // FetchLatest returns the latest release tag from GitHub.
