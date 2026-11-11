@@ -181,16 +181,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case autoRefreshMsg:
-		if m.autoRefreshMins > 0 {
-			if m.state == stateList && !m.refreshing && !m.fetchingPR {
-				m.refreshing = true
-				m.refreshRepos = nil
-				m.scanDone, m.scanTotal = 0, 0
-				return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, m.autoRefreshFetch), autoRefreshTickCmd(m.autoRefreshMins))
-			}
-			return m, autoRefreshTickCmd(m.autoRefreshMins)
+		if msg.gen != m.autoRefreshGen || m.autoRefreshMins <= 0 {
+			return m, nil
 		}
-		return m, nil
+		next := autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen)
+		if m.state == stateList && !m.refreshing && !m.fetchingPR {
+			m.refreshing = true
+			m.refreshRepos = nil
+			m.scanDone, m.scanTotal = 0, 0
+			return m, tea.Batch(m.spinner.Tick, startScanCmd(m.scanDirs, m.autoRefreshFetch), next)
+		}
+		return m, next
 
 	case editorOpenedMsg:
 		return m.onEditorOpened(msg), nil
@@ -423,6 +424,7 @@ func (m model) handleListKey(action string) (tea.Model, tea.Cmd) {
 
 	case keys.Settings:
 		m.state, m.settingsFrom = stateSettings, stateList
+		m.settingsAutoRefreshMins = m.autoRefreshMins
 
 	case keys.Refresh:
 		if !m.refreshing {
@@ -576,6 +578,7 @@ func (m model) handleDetailKey(action string) (tea.Model, tea.Cmd) {
 
 	case keys.Settings:
 		m.state, m.settingsFrom = stateSettings, stateDetail
+		m.settingsAutoRefreshMins = m.autoRefreshMins
 	}
 	return m, nil
 }
@@ -643,8 +646,12 @@ func (m model) handleSettingsKey(action string) (tea.Model, tea.Cmd) {
 			m.statusMsg = "couldn't save settings: " + err.Error()
 		}
 		var cmds []tea.Cmd
-		if m.autoRefreshMins > 0 {
-			cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
+		if m.autoRefreshMins != m.settingsAutoRefreshMins {
+			var cmd tea.Cmd
+			m, cmd = m.restartAutoRefresh()
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		// Back to the detail view they were opened from, opened again on
 		// its repo, wherever pulls and lookups meanwhile sorted it, at the

@@ -54,7 +54,7 @@ type commitsLoadedMsg []string
 type behindCommitsLoadedMsg []string
 type fetchDoneMsg git.RepoInfo
 type pullAllDoneMsg []git.RepoInfo
-type autoRefreshMsg struct{}
+type autoRefreshMsg struct{ gen uint64 }
 type shellReturnMsg struct{}
 type deleteRepoDoneMsg struct{ name string }
 type errMsg struct{ err error }
@@ -164,14 +164,24 @@ type model struct {
 	screen *screen
 
 	// config
-	scanDirs         []string
-	doFetch          bool
-	noPRs            bool
-	autoRefreshMins  int
-	autoRefreshFetch bool
-	bootFetch        bool
-	checkUpdates     bool
-	configPath       string
+	scanDirs          []string
+	doFetch           bool
+	noPRs             bool
+	autoRefreshMins   int
+	autoRefreshFetch  bool
+	autoRefreshCtx    context.Context
+	autoRefreshCancel context.CancelFunc
+	// autoRefreshRoot is the lifetime of the whole timer; each interval
+	// change replaces its child context, and quitting cancels the root.
+	autoRefreshRoot       context.Context
+	autoRefreshRootCancel context.CancelFunc
+	autoRefreshGen        uint64
+	// settingsAutoRefreshMins is the interval when settings opened, so
+	// leaving settings restarts the timer only when it changed.
+	settingsAutoRefreshMins int
+	bootFetch               bool
+	checkUpdates            bool
+	configPath              string
 
 	// versions
 	version    string
@@ -295,29 +305,41 @@ func New(o Options) model {
 	} else if len(o.EditorProblems) > 0 {
 		statusMsg = "config.json's editors are left out: " + o.EditorProblems[0] + " (git repos editors lists them)"
 	}
+	root, rootCancel := context.WithCancel(context.Background())
+	var refreshCtx context.Context
+	var refreshCancel context.CancelFunc
+	if o.AutoRefreshMins > 0 {
+		refreshCtx, refreshCancel = context.WithCancel(root)
+	}
 	return model{
-		keys:             keymap{bindings: o.Bindings},
-		keyProblems:      o.KeyProblems,
-		editors:          o.Editors,
-		defaultEditor:    o.DefaultEditor,
-		opener:           o.Opener,
-		openerOK:         o.OpenerOK,
-		statusMsg:        statusMsg,
-		scanDirs:         o.Dirs,
-		doFetch:          o.Fetch,
-		noPRs:            !o.PRs,
-		state:            stateScanning,
-		spinner:          newSpinner(),
-		sortCol:          git.SortStatus,
-		hidden:           o.Hidden,
-		autoRefreshMins:  o.AutoRefreshMins,
-		autoRefreshFetch: o.AutoRefreshFetch,
-		bootFetch:        o.BootFetch,
-		checkUpdates:     o.CheckUpdates,
-		configPath:       o.ConfigPath,
-		version:          normalizeVersion(o.Version),
-		gitVersion:       detectCLIVersion("git", "--version"),
-		ghVersion:        detectCLIVersion("gh", "--version"),
+		keys:                    keymap{bindings: o.Bindings},
+		keyProblems:             o.KeyProblems,
+		editors:                 o.Editors,
+		defaultEditor:           o.DefaultEditor,
+		opener:                  o.Opener,
+		openerOK:                o.OpenerOK,
+		statusMsg:               statusMsg,
+		scanDirs:                o.Dirs,
+		doFetch:                 o.Fetch,
+		noPRs:                   !o.PRs,
+		state:                   stateScanning,
+		spinner:                 newSpinner(),
+		sortCol:                 git.SortStatus,
+		hidden:                  o.Hidden,
+		autoRefreshMins:         o.AutoRefreshMins,
+		autoRefreshFetch:        o.AutoRefreshFetch,
+		autoRefreshCtx:          refreshCtx,
+		autoRefreshCancel:       refreshCancel,
+		autoRefreshRoot:         root,
+		autoRefreshRootCancel:   rootCancel,
+		autoRefreshGen:          1,
+		settingsAutoRefreshMins: o.AutoRefreshMins,
+		bootFetch:               o.BootFetch,
+		checkUpdates:            o.CheckUpdates,
+		configPath:              o.ConfigPath,
+		version:                 normalizeVersion(o.Version),
+		gitVersion:              detectCLIVersion("git", "--version"),
+		ghVersion:               detectCLIVersion("gh", "--version"),
 	}
 }
 
@@ -465,7 +487,9 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds, checkGHCmd)
 	}
 	if m.autoRefreshMins > 0 {
-		cmds = append(cmds, autoRefreshTickCmd(m.autoRefreshMins))
+		if cmd := autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -568,10 +592,41 @@ func pullAllCmd(repos []git.RepoInfo) tea.Cmd {
 	}
 }
 
-func autoRefreshTickCmd(mins int) tea.Cmd {
-	return tea.Tick(time.Duration(mins)*time.Minute, func(t time.Time) tea.Msg {
-		return autoRefreshMsg{}
-	})
+func autoRefreshTickCmd(ctx context.Context, mins int, gen uint64) tea.Cmd {
+	if ctx == nil || mins <= 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		timer := time.NewTimer(time.Duration(mins) * time.Minute)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+			return autoRefreshMsg{gen: gen}
+		}
+	}
+}
+
+// restartAutoRefresh stops the one timer chain, if any, and starts a new
+// one at the current interval. Its generation makes any tick already in
+// flight harmless: it is ignored instead of starting a second chain.
+func (m model) restartAutoRefresh() (model, tea.Cmd) {
+	m.autoRefreshGen++
+	if m.autoRefreshCancel != nil {
+		m.autoRefreshCancel()
+		m.autoRefreshCancel = nil
+	}
+	m.autoRefreshCtx = nil
+	if m.autoRefreshMins <= 0 {
+		return m, nil
+	}
+	root := m.autoRefreshRoot
+	if root == nil {
+		root = context.Background()
+	}
+	m.autoRefreshCtx, m.autoRefreshCancel = context.WithCancel(root)
+	return m, autoRefreshTickCmd(m.autoRefreshCtx, m.autoRefreshMins, m.autoRefreshGen)
 }
 
 func (m model) openShellCmd(path string) tea.Cmd {
@@ -620,6 +675,9 @@ func openBrowser(url string) {
 // Run starts the full-screen TUI program.
 func Run(o Options) error {
 	m := New(o)
+	if m.autoRefreshRootCancel != nil {
+		defer m.autoRefreshRootCancel()
+	}
 	m.screen = newScreen(os.Stdout)
 	p := tea.NewProgram(m, tea.WithOutput(m.screen))
 	_, err := p.Run()
